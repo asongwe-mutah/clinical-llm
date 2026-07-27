@@ -1,0 +1,23 @@
+services:
+  clinical-llm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: clinical-llm:0.1.0
+    ports:
+      - "8000:8000"
+    environment:
+      CLINICAL_LLM_BASE: ${CLINICAL_LLM_BASE:-Qwen/Qwen2.5-3B-Instruct}
+      CLINICAL_LLM_ADAPTER: ${CLINICAL_LLM_ADAPTER:-/models/clinical-qlora}
+      HF_HOME: /models/.hf
+    volumes:
+      # Mount your trained adapter(s) + HF cache so no weights bake into the image.
+      - ../outputs:/models
+    # Requires the NVIDIA Container Toolkit. Drop this block to run CPU-only.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

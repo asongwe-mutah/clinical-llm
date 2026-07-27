@@ -1,0 +1,17 @@
+# Data-preparation config. Consumed by `python -m clinical_llm.data.prepare`.
+# Builds data/processed/{train,val}.jsonl from public medical corpora.
+
+output_dir: data/processed
+max_per_source: null        # null = use all; set an int to cap for quick builds
+use_pubmedqa: true
+use_medmcqa: true
+use_medquad: true
+
+# Notes-summarization stretch task. Requires a *local* JSONL of
+# {"note": ..., "summary": ...} lines (e.g. derived from MIMIC-IV-Note under
+# your PhysioNet credentials). Left off by default; no PHI ships in this repo.
+use_notes_summarization: false
+notes_jsonl: null           # e.g. data/notes/mimic_bhc.jsonl
+
+seed: 13
+val_fraction: 0.02

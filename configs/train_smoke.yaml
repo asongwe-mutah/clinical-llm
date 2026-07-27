@@ -1,0 +1,40 @@
+# Tiny smoke train to verify the *entire* pipeline end-to-end on a laptop
+# (Apple-Silicon MPS or CPU), no GPU required. Uses a very small base model,
+# a handful of steps, and no 4-bit quantization.
+#
+#   # first build a tiny corpus:
+#   python -m clinical_llm.data.prepare --config configs/data_smoke.yaml
+#   # then:
+#   python -m clinical_llm.train.train_qlora --config configs/train_smoke.yaml
+#
+# This is NOT meant to produce a good model — only to prove the code path runs.
+
+data_dir: data/processed_smoke
+output_dir: outputs/smoke
+
+model:
+  base_model: Qwen/Qwen2.5-0.5B-Instruct  # ~1GB; small enough for CPU/MPS
+  load_in_4bit: false                      # bitsandbytes/4bit is CUDA-only
+  max_seq_len: 512
+  trust_remote_code: false
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+epochs: 1.0
+max_steps: 5                 # just a few optimizer steps
+per_device_batch_size: 1
+grad_accum: 1
+learning_rate: 2.0e-4
+warmup_ratio: 0.0
+lr_scheduler_type: constant
+logging_steps: 1
+save_steps: 5
+eval_steps: 5
+bf16: false
+gradient_checkpointing: false
+packing: false
+seed: 13

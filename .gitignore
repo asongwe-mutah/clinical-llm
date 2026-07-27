@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Project data & artifacts — never commit datasets, checkpoints, or PHI.
+# Anchored to repo root so the source package src/clinical_llm/data/ is kept.
+/data/
+!/data/.gitkeep
+/outputs/
+/reports/
+*.jsonl
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+wandb/
+
+# HF / caches
+.cache/
+.hf_cache/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

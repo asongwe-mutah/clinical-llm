@@ -1,0 +1,38 @@
+# Full QLoRA fine-tune. Target: a single 24-48 GB CUDA GPU (A100 / L4 / 4090 /
+# 3090). Run with:
+#   python -m clinical_llm.train.train_qlora --config configs/train_qlora.yaml
+#
+# Roughly ~2-4 h for 1 epoch over the full QA corpus on one A100-40GB.
+
+data_dir: data/processed
+output_dir: outputs/clinical-qlora
+
+model:
+  base_model: Qwen/Qwen2.5-3B-Instruct   # swap for meta-llama/Llama-3.1-8B-Instruct on a bigger GPU
+  load_in_4bit: true                     # QLoRA; auto-disabled off-CUDA
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_quant_type: nf4
+  max_seq_len: 2048
+  trust_remote_code: false
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+epochs: 1.0
+max_steps: -1
+per_device_batch_size: 8
+grad_accum: 4                # effective batch = 8 * 4 = 32
+learning_rate: 2.0e-4
+warmup_ratio: 0.03
+weight_decay: 0.0
+lr_scheduler_type: cosine
+logging_steps: 10
+save_steps: 200
+eval_steps: 200
+bf16: true
+gradient_checkpointing: true
+packing: true
+seed: 13

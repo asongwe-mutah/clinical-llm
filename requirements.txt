@@ -1,0 +1,26 @@
+# Full training + serving stack. For a GPU box:
+#   pip install -r requirements.txt
+# For laptop-only unit tests, `pip install -e .` (core deps) is enough.
+
+# core
+pyyaml>=6.0
+
+# ml stack
+torch>=2.2
+transformers>=4.44
+datasets>=2.20
+peft>=0.12
+trl>=0.9
+accelerate>=0.33
+sentencepiece>=0.2
+# 4-bit QLoRA quantization is CUDA/Linux only; skipped automatically elsewhere.
+bitsandbytes>=0.43 ; platform_system == "Linux"
+
+# serving
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+
+# dev
+pytest>=8.0
+ruff>=0.5

@@ -1,0 +1,11 @@
+# Tiny corpus for the smoke train: a few dozen examples per source so the
+# whole build finishes in well under a minute.
+output_dir: data/processed_smoke
+max_per_source: 32
+use_pubmedqa: true
+use_medmcqa: true
+use_medquad: true
+use_notes_summarization: false
+notes_jsonl: null
+seed: 13
+val_fraction: 0.1
