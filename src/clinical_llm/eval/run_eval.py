@@ -25,7 +25,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Optional
 
 from clinical_llm.data.formatting import SYSTEM_PROMPT, format_mcq_question, render_with_tokenizer
 from clinical_llm.eval.benchmarks import BENCHMARKS, MCQItem
@@ -34,7 +33,7 @@ from clinical_llm.utils.logging import get_logger
 log = get_logger("eval")
 
 
-def _load_model(base_model: str, adapter: Optional[str], trust_remote_code: bool):
+def _load_model(base_model: str, adapter: str | None, trust_remote_code: bool):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -82,7 +81,7 @@ def evaluate_item(model, tokenizer, device, item: MCQItem) -> bool:
     prompt = render_with_tokenizer(tokenizer, messages, add_generation_prompt=True)
 
     scores = []
-    for letter, opt in zip(letters, item.options):
+    for letter, opt in zip(letters, item.options, strict=True):
         continuation = f"Answer: {letter}. {opt}"
         scores.append(_option_logprob(model, tokenizer, device, prompt, continuation))
     pred = int(max(range(len(scores)), key=lambda i: scores[i]))
@@ -91,9 +90,9 @@ def evaluate_item(model, tokenizer, device, item: MCQItem) -> bool:
 
 def run(
     base_model: str,
-    adapter: Optional[str],
+    adapter: str | None,
     benchmarks: list[str],
-    max_items: Optional[int],
+    max_items: int | None,
     trust_remote_code: bool,
 ) -> dict:
     model, tokenizer, device = _load_model(base_model, adapter, trust_remote_code)

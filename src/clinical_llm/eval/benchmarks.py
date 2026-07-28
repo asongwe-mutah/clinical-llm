@@ -10,8 +10,8 @@ Each loader yields ``MCQItem``s with a question stem, options, and the
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator, Optional
 
 
 @dataclass
@@ -23,7 +23,7 @@ class MCQItem:
     subject: str = ""
 
 
-def load_medmcqa_val(max_items: Optional[int] = None) -> Iterator[MCQItem]:
+def load_medmcqa_val(max_items: int | None = None) -> Iterator[MCQItem]:
     from datasets import load_dataset
 
     ds = load_dataset("openlifescienceai/medmcqa", split="validation")
@@ -43,7 +43,7 @@ def load_medmcqa_val(max_items: Optional[int] = None) -> Iterator[MCQItem]:
         )
 
 
-def load_medqa_test(max_items: Optional[int] = None) -> Iterator[MCQItem]:
+def load_medqa_test(max_items: int | None = None) -> Iterator[MCQItem]:
     """MedQA (USMLE) 4-option English test split."""
     from datasets import load_dataset
 
@@ -68,7 +68,7 @@ def load_medqa_test(max_items: Optional[int] = None) -> Iterator[MCQItem]:
         yield MCQItem(question=question, options=options, gold_index=gold_index, source="medqa")
 
 
-def load_pubmedqa_test(max_items: Optional[int] = None) -> Iterator[MCQItem]:
+def load_pubmedqa_test(max_items: int | None = None) -> Iterator[MCQItem]:
     """PubMedQA as a 3-way (yes/no/maybe) classification task."""
     from datasets import load_dataset
 

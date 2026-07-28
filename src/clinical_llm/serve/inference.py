@@ -8,9 +8,9 @@ generation thread.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from threading import Thread
-from typing import Iterator, Optional
 
 from clinical_llm.data.formatting import SYSTEM_PROMPT, render_with_tokenizer
 
@@ -30,8 +30,8 @@ class ClinicalLLM:
     def __init__(
         self,
         base_model: str,
-        adapter: Optional[str] = None,
-        merged_model: Optional[str] = None,
+        adapter: str | None = None,
+        merged_model: str | None = None,
         trust_remote_code: bool = False,
     ):
         import torch
@@ -61,7 +61,7 @@ class ClinicalLLM:
         self.model.to(self.device)
         self.model.eval()
 
-    def _build_prompt(self, user: str, history: Optional[list[dict]], system: str) -> str:
+    def _build_prompt(self, user: str, history: list[dict] | None, system: str) -> str:
         messages = [{"role": "system", "content": system}]
         if history:
             messages.extend(history)
@@ -86,9 +86,9 @@ class ClinicalLLM:
     def generate(
         self,
         user: str,
-        history: Optional[list[dict]] = None,
+        history: list[dict] | None = None,
         system: str = SYSTEM_PROMPT,
-        settings: Optional[GenerationSettings] = None,
+        settings: GenerationSettings | None = None,
     ) -> str:
         import torch
 
@@ -103,9 +103,9 @@ class ClinicalLLM:
     def stream(
         self,
         user: str,
-        history: Optional[list[dict]] = None,
+        history: list[dict] | None = None,
         system: str = SYSTEM_PROMPT,
-        settings: Optional[GenerationSettings] = None,
+        settings: GenerationSettings | None = None,
     ) -> Iterator[str]:
         from transformers import TextIteratorStreamer
 
@@ -118,8 +118,7 @@ class ClinicalLLM:
         kwargs = dict(inputs, streamer=streamer, **self._gen_kwargs(settings))
         thread = Thread(target=self.model.generate, kwargs=kwargs)
         thread.start()
-        for token in streamer:
-            yield token
+        yield from streamer
         thread.join()
 
 

@@ -58,3 +58,14 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+# An explicit, deterministic rule set so CI does not drift with ruff defaults.
+# pycodestyle (E/W), pyflakes (F), isort (I), pyupgrade (UP), bugbear (B),
+# comprehensions (C4).
+select = ["E", "W", "F", "I", "UP", "B", "C4"]
+ignore = [
+    "E501",   # line length is enforced by the formatter, not the linter
+    "B008",   # FastAPI's Depends()/Field() default-arg pattern is idiomatic
+    "C408",   # dict(...) for building kwargs is intentional and readable here
+]

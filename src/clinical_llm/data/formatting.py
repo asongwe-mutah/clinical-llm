@@ -15,7 +15,7 @@ The tokenizer-aware rendering (applying a model's real chat template) lives in
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 # A conservative clinical system prompt. It sets the assistant's persona and,
 # crucially, bakes the safety framing into every training example so the model
@@ -92,7 +92,8 @@ def format_mcq_question(
         raise ValueError(f"at most {len(_MCQ_LETTERS)} options supported")
 
     lines = [question.strip(), ""]
-    for letter, opt in zip(_MCQ_LETTERS, options):
+    # options may be shorter than the letter list; zip stops at options (intended).
+    for letter, opt in zip(_MCQ_LETTERS, options, strict=False):
         lines.append(f"{letter}. {opt.strip()}")
     if include_instruction:
         lines.append("")
@@ -122,8 +123,8 @@ def build_chat_example(
     user: str,
     assistant: str,
     *,
-    system: Optional[str] = None,
-    meta: Optional[dict[str, Any]] = None,
+    system: str | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> ChatExample:
     """Construct a :class:`ChatExample`, validating that both sides are present."""
     user = (user or "").strip()
@@ -180,7 +181,7 @@ def render_with_tokenizer(
     )
 
 
-def extract_mcq_letter(text: str) -> Optional[str]:
+def extract_mcq_letter(text: str) -> str | None:
     """Best-effort parse of a predicted option letter from model output.
 
     Used by the eval harness. Looks for ``Answer: X`` first, then a leading

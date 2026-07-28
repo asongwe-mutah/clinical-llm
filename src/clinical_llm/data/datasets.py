@@ -22,7 +22,8 @@ redistributed. The repo therefore ships the *format*, not the data.
 from __future__ import annotations
 
 import json
-from typing import Any, Iterator, Optional
+from collections.abc import Iterator
+from typing import Any
 
 from clinical_llm.data.formatting import (
     ChatExample,
@@ -32,13 +33,13 @@ from clinical_llm.data.formatting import (
 )
 
 
-def _load(hf_id: str, name: Optional[str] = None, split: str = "train"):
+def _load(hf_id: str, name: str | None = None, split: str = "train"):
     from datasets import load_dataset
 
     return load_dataset(hf_id, name) if name else load_dataset(hf_id, split=split)
 
 
-def iter_pubmedqa(max_examples: Optional[int] = None) -> Iterator[ChatExample]:
+def iter_pubmedqa(max_examples: int | None = None) -> Iterator[ChatExample]:
     from datasets import load_dataset
 
     ds = load_dataset("qiaojin/PubMedQA", "pqa_labeled", split="train")
@@ -70,7 +71,7 @@ def iter_pubmedqa(max_examples: Optional[int] = None) -> Iterator[ChatExample]:
         )
 
 
-def iter_medmcqa(max_examples: Optional[int] = None) -> Iterator[ChatExample]:
+def iter_medmcqa(max_examples: int | None = None) -> Iterator[ChatExample]:
     from datasets import load_dataset
 
     ds = load_dataset("openlifescienceai/medmcqa", split="train")
@@ -92,7 +93,7 @@ def iter_medmcqa(max_examples: Optional[int] = None) -> Iterator[ChatExample]:
         )
 
 
-def iter_medquad(max_examples: Optional[int] = None) -> Iterator[ChatExample]:
+def iter_medquad(max_examples: int | None = None) -> Iterator[ChatExample]:
     from datasets import load_dataset
 
     ds = load_dataset("lavita/MedQuAD", split="train")
@@ -113,7 +114,7 @@ def iter_medquad(max_examples: Optional[int] = None) -> Iterator[ChatExample]:
 
 
 def iter_notes_summarization(
-    jsonl_path: str, max_examples: Optional[int] = None
+    jsonl_path: str, max_examples: int | None = None
 ) -> Iterator[ChatExample]:
     """Notes-summarization stretch task from a *local* JSONL.
 
@@ -129,7 +130,7 @@ def iter_notes_summarization(
         "concise summary covering the active problems, key findings, and plan. "
         "Do not invent information not present in the note.\n\nNote:\n"
     )
-    with open(jsonl_path, "r", encoding="utf-8") as fh:
+    with open(jsonl_path, encoding="utf-8") as fh:
         for i, line in enumerate(fh):
             if max_examples is not None and i >= max_examples:
                 break

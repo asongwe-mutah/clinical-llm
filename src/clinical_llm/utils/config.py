@@ -12,7 +12,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -21,7 +21,7 @@ class DataConfig:
 
     output_dir: str = "data/processed"
     # Per-source cap on examples (None = use all available). Keeps smoke runs fast.
-    max_per_source: Optional[int] = None
+    max_per_source: int | None = None
     # QA sources (Hugging Face dataset ids resolved in data/datasets.py).
     use_pubmedqa: bool = True
     use_medmcqa: bool = True
@@ -29,7 +29,7 @@ class DataConfig:
     # Notes-summarization stretch task. Disabled by default because it needs a
     # credentialed dataset (e.g. MIMIC-IV-Note) placed at ``notes_jsonl``.
     use_notes_summarization: bool = False
-    notes_jsonl: Optional[str] = None
+    notes_jsonl: str | None = None
     seed: int = 13
     val_fraction: float = 0.02
 
@@ -116,7 +116,7 @@ def _from_dict(cls, data: dict[str, Any]):
 def load_yaml(path: str | Path) -> dict[str, Any]:
     import yaml
 
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         return yaml.safe_load(fh) or {}
 
 

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -30,7 +29,7 @@ from clinical_llm.utils.logging import get_logger
 log = get_logger("serve")
 
 app = FastAPI(title="Clinical-LLM", version="0.1.0")
-_MODEL: Optional[ClinicalLLM] = None
+_MODEL: ClinicalLLM | None = None
 
 # Medical-safety disclaimer appended to every API response payload. Belt-and-
 # braces alongside the system-prompt framing baked into training.

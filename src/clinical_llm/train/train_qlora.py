@@ -155,7 +155,7 @@ def load_and_render_dataset(cfg: TrainConfig, tokenizer):
 
 
 def train(cfg: TrainConfig) -> str:
-    import torch  # noqa: F401  (ensures torch present / clear error otherwise)
+    import torch
     from trl import SFTConfig, SFTTrainer
 
     model, tokenizer = load_model_and_tokenizer(cfg)

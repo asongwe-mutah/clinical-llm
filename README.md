@@ -1,5 +1,9 @@
 # Clinical-LLM — a domain-adapted language model for clinical informatics
 
+[![CI](https://github.com/asongwe-mutah/clinical-llm/actions/workflows/ci.yml/badge.svg)](https://github.com/asongwe-mutah/clinical-llm/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 Fine-tunes an open instruction model into a **clinical-informatics assistant**
 using **QLoRA**, then ships an **evaluation harness** against public medical-QA
 benchmarks and a **FastAPI + Docker inference service** with a browser chat UI.
