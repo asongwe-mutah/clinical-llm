@@ -1,0 +1,36 @@
+# QLoRA fine-tune tuned for a single Colab GPU (T4 16 GB / L4 24 GB).
+# max_steps caps the run to a demonstrable ~45-90 min; raise it (or switch to
+# epochs by setting max_steps: -1) on a bigger GPU for a stronger model.
+
+data_dir: data/processed
+output_dir: outputs/clinical-qlora
+
+model:
+  base_model: Qwen/Qwen2.5-3B-Instruct
+  load_in_4bit: true            # QLoRA; requires the CUDA GPU Colab provides
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_quant_type: nf4
+  max_seq_len: 1024             # smaller than the full run to fit T4 memory
+  trust_remote_code: false
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+epochs: 1.0
+max_steps: 500                  # bounded demo run; set -1 to train full epochs
+per_device_batch_size: 4
+grad_accum: 8                   # effective batch = 32
+learning_rate: 2.0e-4
+warmup_ratio: 0.03
+weight_decay: 0.0
+lr_scheduler_type: cosine
+logging_steps: 10
+save_steps: 250
+eval_steps: 250
+bf16: true
+gradient_checkpointing: true
+packing: true
+seed: 13

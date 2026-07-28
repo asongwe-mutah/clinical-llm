@@ -1,6 +1,7 @@
 # Clinical-LLM — a domain-adapted language model for clinical informatics
 
 [![CI](https://github.com/asongwe-mutah/clinical-llm/actions/workflows/ci.yml/badge.svg)](https://github.com/asongwe-mutah/clinical-llm/actions/workflows/ci.yml)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/asongwe-mutah/clinical-llm/blob/main/notebooks/clinical_llm_colab.ipynb)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -79,6 +80,13 @@ pip install -r requirements.txt
 ```
 
 ### 3. Full QLoRA fine-tune (CUDA GPU — Colab / RunPod / Lambda / local 3090+)
+
+**Easiest path — one click:** open the [Colab notebook](notebooks/clinical_llm_colab.ipynb)
+([![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/asongwe-mutah/clinical-llm/blob/main/notebooks/clinical_llm_colab.ipynb)),
+set the runtime to GPU, and **Run all** — it installs, builds the corpus, fine-tunes,
+evaluates, and lets you chat with the result on a free T4.
+
+Or from a shell on any CUDA box:
 
 ```bash
 python -m clinical_llm.data.prepare  --config configs/data.yaml

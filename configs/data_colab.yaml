@@ -1,0 +1,12 @@
+# Colab-sized corpus: capped per source so data prep finishes in a couple of
+# minutes and training fits a free/cheap GPU session. Raise/remove the cap on a
+# bigger GPU for a stronger model.
+output_dir: data/processed
+max_per_source: 8000
+use_pubmedqa: true
+use_medmcqa: true
+use_medquad: true
+use_notes_summarization: false
+notes_jsonl: null
+seed: 13
+val_fraction: 0.02
