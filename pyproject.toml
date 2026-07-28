@@ -41,6 +41,7 @@ serve = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.5",
+    "pre-commit>=3.7",
 ]
 
 [project.scripts]

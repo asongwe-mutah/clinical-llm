@@ -1,0 +1,23 @@
+# Runs the same lint gate as CI, locally, before each commit.
+#   pip install pre-commit && pre-commit install
+# Then ruff (lint + format) runs automatically on `git commit`; run across the
+# whole repo any time with `pre-commit run --all-files`.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.5
+    hooks:
+      # Linter — honours the [tool.ruff.lint] rule set pinned in pyproject.toml.
+      - id: ruff
+        args: [--fix]
+      # Formatter — keeps style consistent (line-length 100, per pyproject).
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-added-large-files      # guardrail: block accidental weights/data
+        args: [--maxkb=1024]
+      - id: check-merge-conflict

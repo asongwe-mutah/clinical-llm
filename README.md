@@ -131,11 +131,19 @@ Clinical-note summarization is wired in (`use_notes_summarization`) but ships
 your own PhysioNet MIMIC-IV credentials. The repo provides the *format and code
 path*, never PHI.
 
-## Tests
+## Tests & developer setup
 
 ```bash
 pytest -q          # fast, offline; runs in CI-friendly < 1s
+ruff check src tests
+
+# optional: run the same lint gate as CI automatically before every commit
+pip install pre-commit && pre-commit install
 ```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `ruff` + `pytest`
+on Python 3.10–3.12 for every push and PR — installing only the light core deps,
+so it needs no GPU or network.
 
 ## License
 
