@@ -44,6 +44,12 @@ class ModelConfig:
     bnb_4bit_quant_type: str = "nf4"
     max_seq_len: int = 2048
     trust_remote_code: bool = False
+    # Attention kernel: "auto" picks flash_attention_2 when the GPU and the
+    # installed packages both support it, else sdpa. This matters with
+    # packing=True: only FA2 gives packed samples block-diagonal masking, so
+    # without it examples in the same packed sequence attend across each other.
+    # Override with an explicit "flash_attention_2" | "sdpa" | "eager".
+    attn_implementation: str = "auto"
 
 
 @dataclass

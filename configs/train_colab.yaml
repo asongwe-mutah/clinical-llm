@@ -1,6 +1,12 @@
 # QLoRA fine-tune tuned for a single Colab GPU (T4 16 GB / L4 24 GB).
-# max_steps caps the run to a demonstrable ~45-90 min; raise it (or switch to
-# epochs by setting max_steps: -1) on a bigger GPU for a stronger model.
+#
+# Sized to finish inside one Colab session: ~2-3 h on a free T4, ~45-70 min on
+# an L4, ~20-30 min on an A100. Raise max_steps (or set -1 for full epochs) on
+# a bigger GPU for a stronger model.
+#
+# Sanity check before walking away: the tqdm bar prints s/it after a few steps.
+# Multiply by max_steps. On a T4, s/it above ~40 means the fp16 path did not
+# engage -- confirm the "precision=" field in the startup log says fp16.
 
 data_dir: data/processed
 output_dir: outputs/clinical-qlora
@@ -8,7 +14,7 @@ output_dir: outputs/clinical-qlora
 model:
   base_model: Qwen/Qwen2.5-3B-Instruct
   load_in_4bit: true            # QLoRA; requires the CUDA GPU Colab provides
-  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_compute_dtype: bfloat16   # auto-downgraded to float16 on pre-Ampere
   bnb_4bit_quant_type: nf4
   max_seq_len: 1024             # smaller than the full run to fit T4 memory
   trust_remote_code: false
@@ -20,17 +26,17 @@ lora:
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 epochs: 1.0
-max_steps: 500                  # bounded demo run; set -1 to train full epochs
+max_steps: 300                  # bounded demo run; set -1 to train full epochs
 per_device_batch_size: 4
-grad_accum: 8                   # effective batch = 32
+grad_accum: 2                   # effective batch = 8; raise on an L4/A100
 learning_rate: 2.0e-4
 warmup_ratio: 0.03
 weight_decay: 0.0
 lr_scheduler_type: cosine
 logging_steps: 10
-save_steps: 250
-eval_steps: 250
-bf16: true
+save_steps: 50                  # checkpoint often; Colab sessions get reclaimed
+eval_steps: 150
+bf16: true                      # "use bf16 if this GPU has it"; else fp16
 gradient_checkpointing: true
 packing: true
 seed: 13

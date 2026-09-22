@@ -86,6 +86,21 @@ pip install -r requirements.txt
 set the runtime to GPU, and **Run all** — it installs, builds the corpus, fine-tunes,
 evaluates, and lets you chat with the result on a free T4.
 
+**Two configs, picked from the hardware you actually get:**
+
+| GPU | Config | Precision | Attention | Expect |
+|---|---|---|---|---|
+| T4 (free Colab, sm_75) | `train_colab.yaml` | fp16 | sdpa | ~2–3 h |
+| L4 (sm_89) | `train_gpu.yaml` | bf16 | FlashAttn-2 | ~45–70 min |
+| A100 (sm_80) | `train_gpu.yaml` | bf16 | FlashAttn-2 | ~20–30 min |
+
+A T4 has neither native bf16 nor FlashAttention-2, which is why it is the slow
+case by a wide margin — the trainer detects both and degrades automatically
+(see [Design decisions](#design-decisions-worth-calling-out)). Before walking
+away, check the startup log says `precision=bf16` (or `fp16` on a T4, **never
+`fp32`**), then multiply the progress bar's `s/it` by `max_steps`. If the
+projection exceeds your session limit, lower `max_steps` rather than hoping.
+
 Or from a shell on any CUDA box:
 
 ```bash
@@ -126,6 +141,18 @@ Or containerized (GPU): `docker compose -f docker/docker-compose.yml up --build`
 - **The same script runs on a laptop and an A100.** 4-bit quantization is guarded
   behind a CUDA/bitsandbytes check and degrades gracefully to LoRA off-GPU, so the
   pipeline is verifiable without renting a GPU.
+- **Precision is chosen from the hardware, not the config.** `bf16: true` means
+  "bf16 if this card has it," and `resolve_precision()` guarantees exactly one of
+  bf16/fp16 is set on CUDA. The check is compute-capability ≥ 8.0 rather than
+  `torch.cuda.is_bf16_supported()`, which returns True on Turing via a software
+  emulation path an order of magnitude slower than fp16 — the difference between
+  a 3-hour T4 run and a 60-hour one.
+- **Packing and attention are chosen together.** `packing: true` is only sound
+  with FlashAttention-2, which supplies the block-diagonal mask that keeps packed
+  samples from attending across each other. `resolve_attn_implementation()` asks
+  for FA2 when the GPU and the package both support it, falls back to `sdpa`
+  otherwise, and warns when packing is on without it — so the quality caveat is
+  visible in the log rather than silent.
 - **Log-likelihood MCQ scoring**, not brittle string parsing — deterministic and
   standard (lm-eval-harness style).
 - **Safety is learned + enforced:** framed in the training system prompt, attached

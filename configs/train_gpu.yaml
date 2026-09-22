@@ -1,0 +1,43 @@
+# QLoRA fine-tune for a GPU with NATIVE bf16 -- L4, A100, H100, RTX 30/40-series.
+# (Ampere sm_80+. On a T4 use configs/train_colab.yaml instead: it has neither
+# native bf16 nor FlashAttention-2, and this config's batch will not fit.)
+#
+# Expect ~45-70 min on an L4, ~20-30 min on an A100 for the 600 steps below.
+# Verify at startup: the log should read `precision=bf16` and
+# `attention implementation: flash_attention_2`. If it says sdpa, install
+# flash-attn (`pip install flash-attn --no-build-isolation`) -- without it,
+# packing=True below silently lets packed samples attend across each other.
+
+data_dir: data/processed
+output_dir: outputs/clinical-qlora
+
+model:
+  base_model: Qwen/Qwen2.5-3B-Instruct
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: bfloat16   # genuinely native here
+  bnb_4bit_quant_type: nf4
+  max_seq_len: 2048                  # 2x the T4 config; bf16 + FA2 affords it
+  trust_remote_code: false
+  attn_implementation: auto          # -> flash_attention_2 on this hardware
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+epochs: 1.0
+max_steps: 600                  # set -1 to train full epochs on an A100
+per_device_batch_size: 8        # 24 GB (L4) holds this at seq-len 2048 in 4-bit
+grad_accum: 4                   # effective batch = 32
+learning_rate: 2.0e-4
+warmup_ratio: 0.03
+weight_decay: 0.0
+lr_scheduler_type: cosine
+logging_steps: 10
+save_steps: 100                 # cheap insurance against a reclaimed session
+eval_steps: 200
+bf16: true
+gradient_checkpointing: true
+packing: true
+seed: 13

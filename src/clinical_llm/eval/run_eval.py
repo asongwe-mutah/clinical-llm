@@ -33,6 +33,45 @@ from clinical_llm.utils.logging import get_logger
 log = get_logger("eval")
 
 
+def _describe_outputs(p: Path) -> str:
+    """Best-effort hint about what actually is on disk near ``p``."""
+    parent = p.parent
+    if parent.exists():
+        found = sorted(c.name for c in parent.iterdir() if c.is_dir())
+        return f"{parent}/ contains: {found or '(no subdirectories)'}"
+    return f"{parent}/ does not exist either"
+
+
+def validate_adapter(adapter: str) -> None:
+    """Fail fast, and legibly, on a local adapter path that isn't one.
+
+    Without this, ``PeftModel.from_pretrained`` treats a non-existent local path
+    as a Hugging Face Hub repo id, so the user gets a 404 for
+    ``huggingface.co/outputs/clinical-qlora`` followed by "Invalid username or
+    password" -- which reads like an auth problem when the real cause is that
+    training never wrote an adapter.
+    """
+    p = Path(adapter)
+    if p.exists():
+        if not p.is_dir():
+            raise SystemExit(f"--adapter {adapter} is a file; expected a directory.")
+        if not (p / "adapter_config.json").exists():
+            raise SystemExit(
+                f"--adapter {adapter} exists but contains no adapter_config.json, so it "
+                f"is not a saved LoRA adapter.\n  {_describe_outputs(p)}\n"
+                "Let the training step finish -- it writes the adapter at the very end, "
+                "via trainer.save_model()."
+            )
+        return
+    # Not on disk. If its parent is a real local directory the user plainly meant
+    # a path, so say so instead of silently querying the Hub.
+    if p.parent.exists():
+        raise SystemExit(
+            f"--adapter {adapter} does not exist.\n  {_describe_outputs(p)}\n"
+            "Train first, or point --adapter at an existing adapter directory."
+        )
+
+
 def _load_model(base_model: str, adapter: str | None, trust_remote_code: bool):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -130,6 +169,7 @@ def main() -> None:
     report: dict = {"base_model": args.base, "adapter": args.adapter, "runs": {}}
 
     if args.adapter:
+        validate_adapter(args.adapter)
         report["runs"]["fine-tuned"] = run(
             args.base, args.adapter, args.benchmarks, args.max_items, args.trust_remote_code
         )

@@ -51,6 +51,67 @@ def _bitsandbytes_available() -> bool:
         return False
 
 
+def bf16_supported() -> bool:
+    """True only when the GPU supports bfloat16 *natively* (Ampere, sm_80+).
+
+    We deliberately do not use ``torch.cuda.is_bf16_supported()``: on Turing
+    cards (T4, sm_75) recent PyTorch reports True on the strength of a software
+    emulation path that is roughly an order of magnitude slower than fp16. A
+    Colab T4 run that trusts that answer crawls at minutes-per-step. Checking
+    the compute capability directly is the honest question to ask.
+    """
+    if not _cuda_available():
+        return False
+    try:
+        import torch
+
+        major, _minor = torch.cuda.get_device_capability()
+        return major >= 8
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def _flash_attn_available() -> bool:
+    try:
+        import flash_attn  # noqa: F401
+
+        return True
+    except Exception:
+        return False
+
+
+def resolve_attn_implementation(cfg: TrainConfig) -> str:
+    """Pick the attention kernel, honouring an explicit config override.
+
+    FlashAttention-2 requires Ampere (sm_80+) *and* the ``flash-attn`` package.
+    It is what gives ``packing=True`` block-diagonal masking -- without it,
+    samples packed into one sequence can attend across each other, which
+    quietly degrades the fine-tune. On a T4 it is simply unavailable, so we
+    fall back to ``sdpa`` (still much better than ``eager``).
+    """
+    requested = (cfg.model.attn_implementation or "auto").lower()
+    if requested != "auto":
+        return requested
+    if bf16_supported() and _flash_attn_available():
+        return "flash_attention_2"
+    return "sdpa"
+
+
+def resolve_precision(cfg: TrainConfig) -> tuple[bool, bool]:
+    """Return the ``(bf16, fp16)`` flags to hand to the trainer.
+
+    Exactly one is True on CUDA, never both, never neither -- the previous
+    logic keyed fp16 off the *requested* ``cfg.bf16`` rather than the
+    *effective* one, so asking for bf16 on a card without it silently selected
+    fp32 and made training ~10x slower than it needed to be.
+    """
+    on_cuda = _cuda_available()
+    if not on_cuda:
+        return False, False
+    use_bf16 = bool(cfg.bf16) and bf16_supported()
+    return use_bf16, not use_bf16
+
+
 def build_quant_config(cfg: TrainConfig):
     """Return a BitsAndBytesConfig for 4-bit, or None when unsupported."""
     want_4bit = cfg.model.load_in_4bit
@@ -66,6 +127,12 @@ def build_quant_config(cfg: TrainConfig):
     from transformers import BitsAndBytesConfig
 
     dtype = getattr(torch, cfg.model.bnb_4bit_compute_dtype, torch.bfloat16)
+    if dtype is torch.bfloat16 and not bf16_supported():
+        log.warning(
+            "bnb_4bit_compute_dtype=bfloat16 requested but this GPU has no native "
+            "bf16 (compute capability < 8.0); using float16 instead."
+        )
+        dtype = torch.float16
     return BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type=cfg.model.bnb_4bit_quant_type,
@@ -87,12 +154,22 @@ def load_model_and_tokenizer(cfg: TrainConfig):
     quant_config = build_quant_config(cfg)
     on_cuda = _cuda_available()
     # Choose a compute dtype that is valid for the device.
-    if on_cuda and torch.cuda.is_bf16_supported():
+    if on_cuda and bf16_supported():
         dtype = torch.bfloat16
     elif on_cuda:
         dtype = torch.float16
     else:
         dtype = torch.float32  # CPU/MPS smoke run
+
+    attn_impl = resolve_attn_implementation(cfg)
+    if on_cuda:
+        log.info("attention implementation: %s", attn_impl)
+        if attn_impl != "flash_attention_2" and cfg.packing:
+            log.warning(
+                "packing=True without FlashAttention-2: packed samples are not "
+                "block-diagonally masked and can attend across each other. Set "
+                "packing: false for a cleaner (slower) run on this GPU."
+            )
 
     model = AutoModelForCausalLM.from_pretrained(
         cfg.model.base_model,
@@ -100,6 +177,7 @@ def load_model_and_tokenizer(cfg: TrainConfig):
         torch_dtype=dtype,
         device_map="auto" if on_cuda else None,
         trust_remote_code=cfg.model.trust_remote_code,
+        attn_implementation=attn_impl if on_cuda else "eager",
     )
     model.config.use_cache = False
 
@@ -163,6 +241,14 @@ def train(cfg: TrainConfig) -> str:
     ds = load_and_render_dataset(cfg, tokenizer)
 
     on_cuda = _cuda_available()
+    use_bf16, use_fp16 = resolve_precision(cfg)
+    if on_cuda and cfg.bf16 and not use_bf16:
+        log.warning(
+            "bf16 requested but unsupported on %s (compute capability %s); "
+            "training in fp16 instead.",
+            torch.cuda.get_device_name(0),
+            ".".join(str(x) for x in torch.cuda.get_device_capability()),
+        )
     sft_kwargs = dict(
         output_dir=cfg.output_dir,
         num_train_epochs=cfg.epochs,
@@ -176,8 +262,8 @@ def train(cfg: TrainConfig) -> str:
         logging_steps=cfg.logging_steps,
         save_steps=cfg.save_steps,
         save_total_limit=2,
-        bf16=cfg.bf16 and on_cuda and torch.cuda.is_bf16_supported(),
-        fp16=(not cfg.bf16) and on_cuda,
+        bf16=use_bf16,
+        fp16=use_fp16,
         gradient_checkpointing=cfg.gradient_checkpointing and on_cuda,
         packing=cfg.packing,
         dataset_text_field="text",
@@ -204,10 +290,11 @@ def train(cfg: TrainConfig) -> str:
     )
 
     log.info(
-        "starting training: base=%s | 4bit=%s | cuda=%s | steps=%s | epochs=%s",
+        "starting training: base=%s | 4bit=%s | cuda=%s | precision=%s | steps=%s | epochs=%s",
         cfg.model.base_model,
         build_quant_config(cfg) is not None,
         on_cuda,
+        "bf16" if use_bf16 else ("fp16" if use_fp16 else "fp32"),
         cfg.max_steps,
         cfg.epochs,
     )
