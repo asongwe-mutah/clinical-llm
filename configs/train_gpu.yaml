@@ -2,7 +2,24 @@
 # (Ampere sm_80+. On a T4 use configs/train_colab.yaml instead: it has neither
 # native bf16 nor FlashAttention-2, and this config's batch will not fit.)
 #
-# Expect ~45-70 min on an L4, ~20-30 min on an A100 for the 600 steps below.
+# PAIR THIS WITH configs/data_gpu.yaml, not data_colab.yaml.
+#
+# Step budget -- packing makes this counterintuitive, so it is worth writing
+# down. Packing merges short QA samples into full-length sequences at roughly
+# 2.5 samples per 1024 tokens (measured: the 16,660-sample corpus reported
+# 0.18 epoch at 150 steps with effective batch 8 and seq-len 1024, implying
+# ~833 steps/epoch and ~6.7k packed sequences).
+#
+#   data_gpu.yaml  -> ~75k samples
+#   seq-len 2048   -> ~15k packed sequences
+#   eff. batch 32  -> ~470 steps per epoch
+#
+# So max_steps 500 is ~1.1 epochs. The earlier 600 was written against the
+# small 16.6k corpus, where it would have been ~5.8 epochs -- deep into
+# overfitting for a LoRA this size. Scale max_steps with the corpus, not by
+# feel.
+#
+# Expect ~60-90 min on an L4, ~25-40 min on an A100 for 500 steps at seq 2048.
 # Verify at startup: the log should read `precision=bf16` and
 # `attention implementation: flash_attention_2`. If it says sdpa, install
 # flash-attn (`pip install flash-attn --no-build-isolation`) -- without it,
@@ -27,7 +44,7 @@ lora:
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 epochs: 1.0
-max_steps: 600                  # set -1 to train full epochs on an A100
+max_steps: 500                  # ~1.1 epochs on data_gpu.yaml; see header
 per_device_batch_size: 8        # 24 GB (L4) holds this at seq-len 2048 in 4-bit
 grad_accum: 4                   # effective batch = 32
 learning_rate: 2.0e-4

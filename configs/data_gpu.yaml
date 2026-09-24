@@ -1,0 +1,20 @@
+# Larger corpus for a GPU with native bf16 (L4 / A100), paired with
+# configs/train_gpu.yaml.
+#
+# Why bigger: the first real run trained on the 8k-per-source corpus for 150
+# steps -- 0.18 of an epoch -- and produced a MedMCQA lift that was positive
+# but not cleanly separable from noise at n=300. More data plus a full epoch
+# is the cheapest route to a larger, easier-to-detect effect.
+#
+# 25k x 3 sources ~= 75k examples. With packing at seq-len 2048 that is roughly
+# 15k packed sequences, so at effective batch 32 one epoch is about 470 steps.
+# See the step budget in configs/train_gpu.yaml.
+output_dir: data/processed
+max_per_source: 25000
+use_pubmedqa: true
+use_medmcqa: true
+use_medquad: true
+use_notes_summarization: false
+notes_jsonl: null
+seed: 13
+val_fraction: 0.02

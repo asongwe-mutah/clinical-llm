@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 from clinical_llm.data.formatting import SYSTEM_PROMPT, format_mcq_question, render_with_tokenizer
@@ -31,6 +32,61 @@ from clinical_llm.eval.benchmarks import BENCHMARKS, MCQItem
 from clinical_llm.utils.logging import get_logger
 
 log = get_logger("eval")
+
+
+def _chi2_sf_1df(x: float) -> float:
+    """Survival function of chi-square with 1 dof. No scipy dependency."""
+    return math.erfc(math.sqrt(x / 2.0))
+
+
+def mcnemar(base_items: list[int], tuned_items: list[int]) -> dict:
+    """McNemar's paired test on per-item correctness.
+
+    The base and fine-tuned models score the *same* items, so an unpaired
+    two-proportion test throws away the pairing and is needlessly
+    conservative. McNemar looks only at the discordant pairs -- items where
+    exactly one model was right -- which is where the evidence actually lives.
+
+    ``b`` = base right / tuned wrong (regressions), ``c`` = base wrong /
+    tuned right (fixes). Under the null they are equal.
+    """
+    if len(base_items) != len(tuned_items):
+        return {"error": f"length mismatch: {len(base_items)} vs {len(tuned_items)}"}
+
+    pairs = list(zip(base_items, tuned_items, strict=True))
+    b = sum(1 for x, y in pairs if x == 1 and y == 0)
+    c = sum(1 for x, y in pairs if x == 0 and y == 1)
+    n_disc = b + c
+
+    if n_disc == 0:
+        return {"b_regressions": b, "c_fixes": c, "n_discordant": 0,
+                "p_value": 1.0, "method": "degenerate (no discordant pairs)"}
+
+    if n_disc < 25:
+        # Exact two-sided binomial test against p=0.5.
+        k = min(b, c)
+        tail = sum(math.comb(n_disc, i) for i in range(k + 1)) * (0.5 ** n_disc)
+        p = min(1.0, 2.0 * tail)
+        method = "exact binomial (two-sided)"
+        stat = None
+    else:
+        stat = (abs(b - c) - 1) ** 2 / n_disc   # Edwards continuity correction
+        p = _chi2_sf_1df(stat)
+        method = "chi-square with continuity correction, 1 dof"
+
+    return {"b_regressions": b, "c_fixes": c, "n_discordant": n_disc,
+            "statistic": stat, "p_value": p, "method": method}
+
+
+def wilson_interval(correct: int, n: int, z: float = 1.96) -> list[float]:
+    """Wilson score interval -- better than normal approximation near 0/1."""
+    if n == 0:
+        return [0.0, 0.0]
+    p = correct / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return [max(0.0, centre - half), min(1.0, centre + half)]
 
 
 def _describe_outputs(p: Path) -> str:
@@ -144,14 +200,29 @@ def run(
             log.warning("unknown benchmark '%s'; skipping", name)
             continue
         correct = total = 0
+        per_item: list[int] = []
         for item in BENCHMARKS[name](max_items=max_items):
-            correct += int(evaluate_item(model, tokenizer, device, item))
+            hit = int(evaluate_item(model, tokenizer, device, item))
+            per_item.append(hit)
+            correct += hit
             total += 1
             if total % 50 == 0:
                 log.info("  %s: %d/%d (%.1f%%)", name, correct, total, 100 * correct / total)
         acc = correct / total if total else 0.0
-        results[name] = {"accuracy": acc, "n": total, "correct": correct}
-        log.info("%s [%s]: accuracy=%.4f (n=%d)", name, tag, acc, total)
+        lo, hi = wilson_interval(correct, total)
+        results[name] = {
+            "accuracy": acc,
+            "n": total,
+            "correct": correct,
+            "ci95": [lo, hi],
+            # Per-item correctness, in benchmark order. Enables the paired
+            # McNemar test; the two runs iterate the same items in the same
+            # order, so index i refers to the same question in both.
+            "per_item": per_item,
+        }
+        log.info(
+            "%s [%s]: accuracy=%.4f (n=%d, 95%% CI %.3f-%.3f)", name, tag, acc, total, lo, hi
+        )
     return results
 
 
@@ -183,16 +254,44 @@ def main() -> None:
         deltas = {}
         for name in report["runs"]["base"]:
             if name in report["runs"]["fine-tuned"]:
-                b = report["runs"]["base"][name]["accuracy"]
-                f = report["runs"]["fine-tuned"][name]["accuracy"]
-                deltas[name] = {"base": b, "fine_tuned": f, "delta": f - b}
+                base_run = report["runs"]["base"][name]
+                tuned_run = report["runs"]["fine-tuned"][name]
+                entry = {
+                    "base": base_run["accuracy"],
+                    "fine_tuned": tuned_run["accuracy"],
+                    "delta": tuned_run["accuracy"] - base_run["accuracy"],
+                    "n": base_run.get("n"),
+                    "base_ci95": base_run.get("ci95"),
+                    "fine_tuned_ci95": tuned_run.get("ci95"),
+                }
+                bi, ti = base_run.get("per_item"), tuned_run.get("per_item")
+                if bi and ti:
+                    entry["mcnemar"] = mcnemar(bi, ti)
+                deltas[name] = entry
         report["deltas"] = deltas
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2))
     log.info("wrote report to %s", out)
-    print(json.dumps(report.get("deltas", report["runs"]), indent=2))
+
+    # Print a readable summary; the raw per-item arrays stay in the JSON.
+    if report.get("deltas"):
+        print("\n=== base vs fine-tuned ===")
+        for name, d in report["deltas"].items():
+            print(f"\n{name}  (n={d.get('n')})")
+            print(f"  base       {d['base']:.4f}")
+            print(f"  fine-tuned {d['fine_tuned']:.4f}")
+            print(f"  delta      {d['delta']:+.4f}  ({d['delta']*100:+.2f} pp)")
+            m = d.get("mcnemar")
+            if m and "error" not in m:
+                verdict = "significant" if m["p_value"] < 0.05 else "NOT significant"
+                print(f"  McNemar    p = {m['p_value']:.4f}  ({verdict} at alpha=0.05)")
+                print(f"             {m['c_fixes']} fixed, {m['b_regressions']} regressed, "
+                      f"{m['n_discordant']} discordant")
+                print(f"             {m['method']}")
+    else:
+        print(json.dumps(report["runs"], indent=2))
 
 
 if __name__ == "__main__":
