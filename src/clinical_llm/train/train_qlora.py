@@ -237,7 +237,7 @@ def load_and_render_dataset(cfg: TrainConfig, tokenizer):
     return ds
 
 
-def train(cfg: TrainConfig) -> str:
+def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
     import torch
     from trl import SFTConfig, SFTTrainer
 
@@ -346,7 +346,20 @@ def train(cfg: TrainConfig) -> str:
         cfg.max_steps,
         cfg.epochs,
     )
-    trainer.train()
+    # Resume from the newest checkpoint if one is sitting in output_dir. With
+    # output_dir on mounted Drive this makes a reclaimed or crashed Colab
+    # runtime cost only the steps since the last save, not the whole run.
+    resume = None
+    if resume_ok:
+        ckpts = sorted(
+            Path(cfg.output_dir).glob("checkpoint-*"),
+            key=lambda p: int(p.name.rsplit("-", 1)[-1]),
+        )
+        if ckpts:
+            resume = str(ckpts[-1])
+            log.info("resuming from %s (pass --no-resume to start clean)", resume)
+
+    trainer.train(resume_from_checkpoint=resume)
     trainer.save_model(cfg.output_dir)
     tokenizer.save_pretrained(cfg.output_dir)
     log.info("saved LoRA adapter + tokenizer to %s", cfg.output_dir)
@@ -371,6 +384,15 @@ def main() -> None:
         default=None,
         help="Override max_steps from the config, for a quick throughput probe.",
     )
+    ap.add_argument(
+        "--no-resume",
+        action="store_true",
+        help=(
+            "Ignore any checkpoint-* already in output_dir and train from "
+            "scratch. By default the newest checkpoint is resumed, so a crashed "
+            "or reclaimed runtime costs only the steps since the last save."
+        ),
+    )
     args = ap.parse_args()
     cfg = load_train_config(args.config)
     if args.output_dir:
@@ -379,7 +401,7 @@ def main() -> None:
     if args.max_steps is not None:
         cfg.max_steps = args.max_steps
         log.info("max_steps overridden: %s", cfg.max_steps)
-    train(cfg)
+    train(cfg, resume_ok=not args.no_resume)
 
 
 if __name__ == "__main__":
