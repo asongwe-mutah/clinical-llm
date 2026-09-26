@@ -1,41 +1,49 @@
 # QLoRA fine-tune for a GPU with NATIVE bf16 -- L4, A100, H100, RTX 30/40-series.
-# (Ampere sm_80+. On a T4 use configs/train_colab.yaml instead: it has neither
-# native bf16 nor FlashAttention-2, and this config's batch will not fit.)
+# (Ampere sm_80+. On a T4 use configs/train_colab.yaml instead.)
 #
 # PAIR THIS WITH configs/data_gpu.yaml, not data_colab.yaml.
 #
-# Step budget -- packing makes this counterintuitive, so it is worth writing
-# down. Packing merges short QA samples into full-length sequences at roughly
-# 2.5 samples per 1024 tokens (measured: the 16,660-sample corpus reported
-# 0.18 epoch at 150 steps with effective batch 8 and seq-len 1024, implying
-# ~833 steps/epoch and ~6.7k packed sequences).
+# ---------------------------------------------------------------------------
+# MEASURED, not estimated. A previous version of this file ran seq-len 2048 /
+# effective batch 32 on a Colab L4 and got 161 s/it -- 402 tokens/s, about 8%
+# of the card's bf16 peak. It reached step 94 of 500 in 4h11m before Colab
+# reclaimed the session, six steps short of the first checkpoint.
 #
-#   data_gpu.yaml  -> ~75k samples
-#   seq-len 2048   -> ~15k packed sequences
-#   eff. batch 32  -> ~470 steps per epoch
+# Cause: flash-attn is not installed on stock Colab, so attn falls back to
+# sdpa. With packing=True, sdpa gets a packed attention mask it cannot handle
+# in its flash or mem-efficient backends and drops to the MATH backend, which
+# materialises the full seq x seq score matrix every layer. At seq 2048 that
+# is ~39 GB of traffic per forward across 36 layers, on a card with ~300 GB/s.
+# The GPU spends its life waiting on memory.
 #
-# So max_steps 500 is ~1.1 epochs. The earlier 600 was written against the
-# small 16.6k corpus, where it would have been ~5.8 epochs -- deep into
-# overfitting for a LoRA this size. Scale max_steps with the corpus, not by
-# feel.
+# Halving seq-len cuts that quadratic term 4x. Our samples are short medical
+# QA (~400 tokens), so 2048 bought nothing but attention cost.
 #
-# Expect ~60-90 min on an L4, ~25-40 min on an A100 for 500 steps at seq 2048.
-# Verify at startup: the log should read `precision=bf16` and
-# `attention implementation: flash_attention_2`. If it says sdpa, install
-# flash-attn (`pip install flash-attn --no-build-isolation`) -- without it,
-# packing=True below silently lets packed samples attend across each other.
+# Throughput expectations at seq 1024, effective batch 16:
+#   L4,  sdpa (no flash-attn)  ~1000-1400 tok/s  -> 300 steps in ~1.0-1.5 h
+#   L4,  flash_attention_2     ~2000-2800 tok/s  -> 300 steps in ~0.5-0.8 h
+#   A100, flash_attention_2    ~4000+    tok/s   -> 300 steps in ~0.2-0.3 h
+#
+# The trainer now prints a throughput probe after 3 steps and warns if the
+# projected total exceeds 4 hours. CHECK IT before walking away.
+#
+# Token budget is what matters, not epoch fraction. 300 steps here is
+# ~4.9M training tokens -- about 4x the 150-step August run (~1.2M). One full
+# epoch over the 41.5k-sample corpus is ~17M tokens; raise max_steps toward
+# ~1000 only if throughput allows and eval_loss is still falling.
+# ---------------------------------------------------------------------------
 
 data_dir: data/processed
-output_dir: outputs/clinical-qlora
+output_dir: outputs/clinical-qlora   # override with --output-dir for Drive
 
 model:
   base_model: Qwen/Qwen2.5-3B-Instruct
   load_in_4bit: true
   bnb_4bit_compute_dtype: bfloat16   # genuinely native here
   bnb_4bit_quant_type: nf4
-  max_seq_len: 2048                  # 2x the T4 config; bf16 + FA2 affords it
+  max_seq_len: 1024                  # was 2048; see the measurement above
   trust_remote_code: false
-  attn_implementation: auto          # -> flash_attention_2 on this hardware
+  attn_implementation: auto          # flash_attention_2 if installed, else sdpa
 
 lora:
   r: 16
@@ -44,16 +52,16 @@ lora:
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 epochs: 1.0
-max_steps: 500                  # ~1.1 epochs on data_gpu.yaml; see header
-per_device_batch_size: 8        # 24 GB (L4) holds this at seq-len 2048 in 4-bit
-grad_accum: 4                   # effective batch = 32
+max_steps: 300                  # ~4.9M tokens; ~4x the August run
+per_device_batch_size: 8
+grad_accum: 2                   # effective batch = 16
 learning_rate: 2.0e-4
 warmup_ratio: 0.03
 weight_decay: 0.0
 lr_scheduler_type: cosine
 logging_steps: 10
-save_steps: 100                 # cheap insurance against a reclaimed session
-eval_steps: 200
+save_steps: 25                  # was 100 -- the last run died 6 steps short
+eval_steps: 100                 # watch eval_loss: if it rises, stop early
 bf16: true
 gradient_checkpointing: true
 packing: true

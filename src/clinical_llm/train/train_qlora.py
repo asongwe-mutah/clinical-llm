@@ -166,9 +166,14 @@ def load_model_and_tokenizer(cfg: TrainConfig):
         log.info("attention implementation: %s", attn_impl)
         if attn_impl != "flash_attention_2" and cfg.packing:
             log.warning(
-                "packing=True without FlashAttention-2: packed samples are not "
-                "block-diagonally masked and can attend across each other. Set "
-                "packing: false for a cleaner (slower) run on this GPU."
+                "packing=True without FlashAttention-2. This is not only a quality "
+                "issue: sdpa cannot use its fast kernels with a packed attention "
+                "mask and falls back to the math backend, which materialises the "
+                "full seq x seq matrix every layer. At max_seq_len=%d that is the "
+                "single biggest throughput risk on a bandwidth-limited GPU. "
+                "Either `pip install flash-attn --no-build-isolation`, or lower "
+                "max_seq_len, or set packing: false.",
+                cfg.model.max_seq_len,
             )
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -289,6 +294,49 @@ def train(cfg: TrainConfig) -> str:
         processing_class=tokenizer,
     )
 
+    # Fail loudly and early on a pathologically slow step rate. A 4-hour Colab
+    # session dying at 19% because nobody checked s/it in the first 5 minutes
+    # is a preventable loss.
+    if on_cuda:
+        import time
+
+        from transformers import TrainerCallback
+
+        budget_tokens = (
+            cfg.per_device_batch_size * cfg.grad_accum * cfg.model.max_seq_len
+        )
+
+        class ThroughputGuard(TrainerCallback):
+            def __init__(self, probe_at: int = 3):
+                self.probe_at = probe_at
+                self.t0 = None
+
+            def on_step_begin(self, args, state, control, **kw):
+                if state.global_step == 0 and self.t0 is None:
+                    self.t0 = time.time()
+
+            def on_step_end(self, args, state, control, **kw):
+                if state.global_step != self.probe_at or self.t0 is None:
+                    return
+                s_it = (time.time() - self.t0) / self.probe_at
+                tok_s = budget_tokens / s_it
+                eta_h = s_it * cfg.max_steps / 3600 if cfg.max_steps > 0 else float("nan")
+                log.info(
+                    "throughput probe: %.1f s/it | ~%.0f tokens/s | "
+                    "projected total %.1f h for %s steps",
+                    s_it, tok_s, eta_h, cfg.max_steps,
+                )
+                if eta_h > 4:
+                    log.warning(
+                        "PROJECTED RUN EXCEEDS 4 HOURS (%.1f h). A Colab session "
+                        "will very likely be reclaimed first. Stop now and either "
+                        "lower max_seq_len / max_steps, install flash-attn, or "
+                        "checkpoint to Drive via --output-dir.",
+                        eta_h,
+                    )
+
+        trainer.add_callback(ThroughputGuard())
+
     log.info(
         "starting training: base=%s | 4bit=%s | cuda=%s | precision=%s | steps=%s | epochs=%s",
         cfg.model.base_model,
@@ -308,8 +356,29 @@ def train(cfg: TrainConfig) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", required=True)
+    ap.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Override output_dir from the config. Point this at mounted Google "
+            "Drive on Colab (e.g. /content/drive/MyDrive/clinical-qlora) so "
+            "checkpoints survive the runtime being reclaimed."
+        ),
+    )
+    ap.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Override max_steps from the config, for a quick throughput probe.",
+    )
     args = ap.parse_args()
     cfg = load_train_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+        log.info("output_dir overridden: %s", cfg.output_dir)
+    if args.max_steps is not None:
+        cfg.max_steps = args.max_steps
+        log.info("max_steps overridden: %s", cfg.max_steps)
     train(cfg)
 
 
