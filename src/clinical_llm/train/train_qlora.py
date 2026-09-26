@@ -267,6 +267,7 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
         logging_steps=cfg.logging_steps,
         save_steps=cfg.save_steps,
         save_total_limit=2,
+        eval_steps=cfg.eval_steps,
         bf16=use_bf16,
         fp16=use_fp16,
         gradient_checkpointing=cfg.gradient_checkpointing and on_cuda,
@@ -282,6 +283,19 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
     accepted = set(inspect.signature(SFTConfig.__init__).parameters)
     seq_arg = "max_length" if "max_length" in accepted else "max_seq_length"
     sft_kwargs[seq_arg] = cfg.model.max_seq_len
+
+    # `eval_steps` alone does nothing: HF only evaluates when the strategy is
+    # set. Without this the validation split is loaded, handed to the trainer,
+    # and silently never scored -- no eval_loss ever appears, so there is no
+    # signal for overfitting. The arg was renamed `evaluation_strategy` ->
+    # `eval_strategy`; set whichever this version accepts, and only when there
+    # really is a validation split to score.
+    if ds.get("validation") is not None:
+        strategy_arg = "eval_strategy" if "eval_strategy" in accepted else "evaluation_strategy"
+        sft_kwargs[strategy_arg] = "steps"
+    else:
+        sft_kwargs.pop("eval_steps", None)
+
     sft_kwargs = {k: v for k, v in sft_kwargs.items() if k in accepted}
     sft_config = SFTConfig(**sft_kwargs)
 
