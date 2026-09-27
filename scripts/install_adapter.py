@@ -30,18 +30,49 @@ DEST = REPO / "outputs" / "clinical-qlora"
 MARKER = "adapter_config.json"
 
 
-def find_zips(explicit: list[str]) -> list[Path]:
+def find_sources(explicit: list[str]) -> list[tuple[Path, float]]:
+    """Return (path, adapter-save-time) candidates, newest first.
+
+    Browsers may auto-extract a Drive download, so the source can be a
+    DIRECTORY rather than a zip -- and globbing only *.zip would then match
+    older archives lying around in Downloads and silently install a stale
+    adapter. Both shapes are considered, ranked by when the adapter was
+    actually saved.
+    """
     if explicit:
-        return [Path(p).expanduser().resolve() for p in explicit]
-    dl = Path.home() / "Downloads"
-    # Skip Safari/Chrome partial-download bundles (*.download/…) -- those are
-    # still being written and will unzip to a truncated archive.
-    zips = [
-        p
-        for p in dl.glob("clinical-qlora*.zip")
-        if ".download" not in str(p) and p.is_file()
-    ]
-    return sorted(zips)
+        cands = [Path(p).expanduser().resolve() for p in explicit]
+    else:
+        dl = Path.home() / "Downloads"
+        cands = [
+            p
+            for p in dl.glob("clinical-qlora*")
+            if ".download" not in str(p) and not p.name.endswith((".crdownload", ".part"))
+        ]
+
+    out: list[tuple[Path, float]] = []
+    for c in cands:
+        if c.is_dir():
+            cfg = c / MARKER
+            if cfg.exists():
+                out.append((c, cfg.stat().st_mtime))
+            else:
+                ck = [d / MARKER for d in c.glob("checkpoint-*") if (d / MARKER).exists()]
+                if ck:
+                    out.append((c, max(f.stat().st_mtime for f in ck)))
+        elif c.suffix == ".zip":
+            try:
+                with zipfile.ZipFile(c) as zf:
+                    times = [
+                        dt.datetime(*i.date_time).timestamp()
+                        for i in zf.infolist()
+                        if i.filename.endswith(MARKER)
+                    ]
+                if times:
+                    out.append((c, max(times)))
+            except zipfile.BadZipFile:
+                continue
+    out.sort(key=lambda t: t[1], reverse=True)
+    return out
 
 
 def extract_all(zips: list[Path], into: Path) -> None:
@@ -96,19 +127,32 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    zips = find_zips(args.zips)
-    if not zips:
+    sources = find_sources(args.zips)
+    if not sources:
         sys.exit(
-            "No clinical-qlora*.zip found in ~/Downloads.\n"
-            "If the download is still running, wait for the .download folder "
-            "to disappear, then re-run."
+            "No clinical-qlora source found in ~/Downloads (looked for both a\n"
+            "folder and a zip). If a download is still running, wait for the\n"
+            "*.download bundle to disappear, then re-run."
         )
-    print(f"found {len(zips)} zip(s):")
+
+    print("candidates (newest adapter first):")
+    for i, (p, t) in enumerate(sources):
+        when = dt.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")
+        kind = "dir" if p.is_dir() else "zip"
+        mark = "  <- using" if i == 0 else "     skipped"
+        print(f"  [{when}] {kind:3} {p.name}{mark}")
+    chosen = sources[0][0]
+    if len(sources) > 1:
+        print("\n  (pass a path explicitly to override)")
+    print()
 
     stage = Path(tempfile.mkdtemp(prefix="adapter-"))
     try:
-        extract_all(zips, stage)
-        src = find_adapter(stage)
+        if chosen.is_dir():
+            src = find_adapter(chosen)
+        else:
+            extract_all([chosen], stage)
+            src = find_adapter(stage)
         if src is None:
             sys.exit(f"\nNo {MARKER} anywhere in the download. Wrong archive?")
 
