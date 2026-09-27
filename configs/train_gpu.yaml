@@ -19,10 +19,28 @@
 # Halving seq-len cuts that quadratic term 4x. Our samples are short medical
 # QA (~400 tokens), so 2048 bought nothing but attention cost.
 #
-# Throughput expectations at seq 1024, effective batch 16:
-#   L4,  sdpa (no flash-attn)  ~1000-1400 tok/s  -> 300 steps in ~1.0-1.5 h
-#   L4,  flash_attention_2     ~2000-2800 tok/s  -> 300 steps in ~0.5-0.8 h
-#   A100, flash_attention_2    ~4000+    tok/s   -> 300 steps in ~0.2-0.3 h
+# PACKING IS NOW OFF, and that is a correctness fix with a speed bonus.
+#
+# With packing=True and no FA2, sdpa receives a packed attention mask it
+# cannot serve from its flash or mem-efficient kernels, so it falls back to
+# the MATH backend and materialises the full seq x seq matrix -- which is why
+# the 300-step run crawled at 402 tok/s, 8% of the card's peak. It also meant
+# packed samples attended across each other, corrupting the training signal.
+# The resulting adapter fixed 160 MedMCQA items but broke 102 (1.57:1); the
+# noisy signal is the leading suspect.
+#
+# Unpacked, each sequence gets a plain causal mask, sdpa uses its fast path,
+# and examples no longer bleed into one another. Expect BETTER throughput than
+# the packed run despite padding waste.
+#
+# Step budget changes shape: 1 sample = 1 sequence, so at effective batch 16
+# one epoch is ~2,600 steps rather than ~1,040.
+#   800 steps  = 0.31 epoch  (~1.1x the 300-step packed run)
+#  1200 steps  = 0.46 epoch  (~1.6x)          <- current setting
+#  2600 steps  = 1.00 epoch  (~3.5x)
+# Check the throughput probe at step 3: under ~8 s/it, raising max_steps
+# toward 2600 fits a session. eval_loss now actually runs (every 100 steps) --
+# if it turns upward, stop and keep the earlier checkpoint.
 #
 # The trainer now prints a throughput probe after 3 steps and warns if the
 # projected total exceeds 4 hours. CHECK IT before walking away.
@@ -52,7 +70,7 @@ lora:
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 epochs: 1.0
-max_steps: 300                  # ~4.9M tokens; ~4x the August run
+max_steps: 1200                 # 0.46 epoch unpacked; see the budget above
 per_device_batch_size: 8
 grad_accum: 2                   # effective batch = 16
 learning_rate: 2.0e-4
@@ -60,9 +78,9 @@ warmup_ratio: 0.03
 weight_decay: 0.0
 lr_scheduler_type: cosine
 logging_steps: 10
-save_steps: 25                  # was 100 -- the last run died 6 steps short
-eval_steps: 100                 # watch eval_loss: if it rises, stop early
+save_steps: 50                  # ~4% of the run; cheap insurance
+eval_steps: 100                 # NOW ACTUALLY RUNS -- watch for eval_loss rising
 bf16: true
 gradient_checkpointing: true
-packing: true
+packing: false                  # see the header: correctness AND speed
 seed: 13
