@@ -42,7 +42,15 @@ def _load(hf_id: str, name: str | None = None, split: str = "train"):
 def iter_pubmedqa(max_examples: int | None = None) -> Iterator[ChatExample]:
     from datasets import load_dataset
 
-    ds = load_dataset("qiaojin/PubMedQA", "pqa_labeled", split="train")
+    # TRAIN ON pqa_artificial, NOT pqa_labeled.
+    #
+    # pqa_labeled holds exactly 1,000 expert-annotated items and is what
+    # eval/benchmarks.py scores. Training on it leaked ~98% of the evaluation
+    # set into the training corpus (prepare.py holds out only 2%), which
+    # produced a +9.90 pp "improvement" that was memorisation. pqa_artificial
+    # is the large auto-labelled split intended for training and is disjoint
+    # from pqa_labeled.
+    ds = load_dataset("qiaojin/PubMedQA", "pqa_artificial", split="train")
     for i, row in enumerate(ds):
         if max_examples is not None and i >= max_examples:
             break
@@ -154,4 +162,14 @@ QA_SOURCES = {
     "pubmedqa": iter_pubmedqa,
     "medmcqa": iter_medmcqa,
     "medquad": iter_medquad,
+}
+
+# (hf_dataset, config, split) each training source reads. Declared so
+# tests/test_no_contamination.py can assert, offline, that no training source
+# overlaps an evaluation benchmark. Keep in sync with the loaders above --
+# the test is the thing that catches drift.
+TRAIN_SPECS: dict[str, tuple[str, str | None, str]] = {
+    "pubmedqa": ("qiaojin/PubMedQA", "pqa_artificial", "train"),
+    "medmcqa": ("openlifescienceai/medmcqa", None, "train"),
+    "medquad": ("lavita/MedQuAD", None, "train"),
 }

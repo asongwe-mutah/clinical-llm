@@ -96,3 +96,11 @@ BENCHMARKS = {
     "medqa": load_medqa_test,
     "pubmedqa": load_pubmedqa_test,
 }
+
+# (hf_dataset, config, split) each benchmark reads. Must stay disjoint from
+# clinical_llm.data.datasets.TRAIN_SPECS -- see tests/test_no_contamination.py.
+EVAL_SPECS: dict[str, tuple[str, str | None, str]] = {
+    "medmcqa": ("openlifescienceai/medmcqa", None, "validation"),
+    "medqa": ("openlifescienceai/medqa", None, "test"),
+    "pubmedqa": ("qiaojin/PubMedQA", "pqa_labeled", "train"),
+}

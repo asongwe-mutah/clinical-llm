@@ -35,7 +35,7 @@
 |---|---:|---|---|
 | MedMCQA | 25,000 | Multiple-choice QA (21 subjects) | Public (Apache-2.0) |
 | MedQuAD | 16,407 | Consumer-health open QA | Public (CC BY 4.0 terms) |
-| PubMedQA (`pqa_labeled`) | 1,000 | Grounded yes/no/maybe QA | Public (MIT) |
+| PubMedQA (`pqa_artificial`) | 1,000 | Grounded yes/no/maybe QA | Public (MIT) |
 | MIMIC-IV-Note *(optional stretch)* | — | Note summarization | **Credentialed (PhysioNet DUA); not redistributed** |
 
 42,407 examples total → 41,559 train / 848 validation. All normalized to a
@@ -57,9 +57,25 @@ same order**, so the comparison is paired.
 | Benchmark | Base | Fine-tuned | Δ | McNemar *p* |
 |---|---:|---:|---:|---:|
 | MedMCQA (val) | 47.10% | **52.90%** | **+5.80 pp** | 4.3 × 10⁻⁴ |
-| PubMedQA | 64.10% | **74.00%** | **+9.90 pp** | 7.8 × 10⁻¹¹ |
+| ~~PubMedQA~~ | ~~64.10%~~ | ~~74.00%~~ | ~~+9.90 pp~~ | **withdrawn — see below** |
 
-Both improvements are statistically significant at α = 0.05.
+**The MedMCQA result is the headline number**: +5.80 pp, significant at
+α = 0.05, on a validation split disjoint from everything trained on.
+
+> ### ⚠️ The PubMedQA result was contaminated and is withdrawn
+>
+> Training read `qiaojin/PubMedQA` config `pqa_labeled` split `train`. So did
+> the evaluation. `pqa_labeled` contains exactly 1,000 items, and `prepare.py`
+> holds out only 2% for validation — so roughly **980 of the 1,000 evaluated
+> items had been trained on**. The +9.90 pp was memorisation, not
+> generalisation, and no conclusion should be drawn from it.
+>
+> Fixed in `data/datasets.py`: training now reads the disjoint `pqa_artificial`
+> split. `tests/test_no_contamination.py` asserts that no training source and
+> evaluation benchmark share a (dataset, config, split) triple, and fails on
+> the exact configuration that caused this.
+>
+> PubMedQA will be re-scored after a retrain on the corrected corpus.
 
 <details>
 <summary>Full statistics, including what the fine-tune breaks</summary>
@@ -67,16 +83,16 @@ Both improvements are statistically significant at α = 0.05.
 | Benchmark | Base 95% CI | Fine-tuned 95% CI | Fixed | Regressed | Discordant |
 |---|---|---|---:|---:|---:|
 | MedMCQA | [0.440, 0.502] | [0.498, 0.560] | 160 | 102 | 262 |
-| PubMedQA | [0.611, 0.670] | [0.712, 0.766] | 163 | 64 | 227 |
+| ~~PubMedQA~~ *(contaminated)* | ~~[0.611, 0.670]~~ | ~~[0.712, 0.766]~~ | ~~163~~ | ~~64~~ | ~~227~~ |
 
 Intervals are Wilson score intervals. *Fixed* = base wrong, fine-tuned right;
 *regressed* = the reverse.
 
 **Fine-tuning is not uniformly positive.** On MedMCQA it corrects 160 items but
 breaks 102 — a net gain of 58, a fix-to-regression ratio of 1.57:1, with 26% of
-items changing answer in one direction or the other. PubMedQA is cleaner at
-2.55:1. Reporting only the net delta would hide that a quarter of MedMCQA
-answers moved, and that a non-trivial number moved the wrong way.
+items changing answer in one direction or the other. Reporting only the net
+delta would hide that a quarter of answers moved, and that a non-trivial number
+moved the wrong way.
 
 McNemar's test is used rather than a two-proportion z-test because the models
 score identical items; the unpaired test discards that pairing and is needlessly
@@ -95,8 +111,9 @@ were misleading, in opposite directions:
 - The MedMCQA delta **shrank** to +5.80 pp at n = 1,000. The n = 300 base
   accuracy (0.4400) sat ~3 pp below the n = 1,000 estimate (0.4710), inflating
   the apparent gain.
-- The PubMedQA delta **grew** from +3.33 pp to +9.90 pp, partly from more
-  training and partly because n = 300 could not resolve it at all.
+- The PubMedQA delta appeared to **grow** from +3.33 pp to +9.90 pp — but that
+  benchmark was contaminated in both evaluations, so neither figure means
+  anything.
 
 The larger, paired evaluation is the one to trust. Per-item outcomes are stored
 in `reports/eval.json`, so these tests can be recomputed without re-running
@@ -127,6 +144,9 @@ MedQA is supported (`--benchmarks medqa`) but was not scored for this card.
   where FA2 was unavailable, so packed samples were not block-diagonally masked
   and could attend across example boundaries. A known, uncorrected source of
   noise in the training signal.
+- **Single clean benchmark:** with PubMedQA withdrawn, exactly one benchmark
+  (MedMCQA) supports the reported result. MedQA is implemented, untouched by
+  the training corpus, and unscored — it is the obvious independent check.
 - **Benchmark scope:** MedMCQA and PubMedQA are multiple-choice. They measure
   answer selection, not generation quality, calibration, or safety of free-text
   output — none of which are evaluated here.
