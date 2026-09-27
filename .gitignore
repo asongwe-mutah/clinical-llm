@@ -31,3 +31,6 @@ wandb/
 .idea/
 .vscode/
 *.swp
+
+# The headline eval result is evidence for the model card; keep it.
+!/reports/eval.json
