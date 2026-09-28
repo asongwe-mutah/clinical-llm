@@ -88,6 +88,13 @@ class TrainConfig:
     logging_steps: int = 10
     save_steps: int = 200
     eval_steps: int = 200
+    # In-loop eval cost is easy to underestimate. A 1,328-example validation
+    # set took 5.8 min per eval on an L4 -- 18% of a 6-hour run. Subsample it;
+    # the in-loop eval is an overfitting signal, not the headline metric.
+    eval_max_samples: int | None = 200
+    # How many checkpoints to retain. 2 is too few when a run may be killed:
+    # a crash at 74% left exactly two candidates and no eval curve to pick from.
+    save_total_limit: int = 6
     bf16: bool = True
     gradient_checkpointing: bool = True
     packing: bool = True

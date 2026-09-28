@@ -70,7 +70,7 @@ lora:
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 epochs: 1.0
-max_steps: 1200                 # 0.46 epoch unpacked; see the budget above
+max_steps: 700                  # ~3.0 h at the measured 15.5 s/it; 11,200 samples
 per_device_batch_size: 8
 grad_accum: 2                   # effective batch = 16
 learning_rate: 2.0e-4
@@ -78,8 +78,10 @@ warmup_ratio: 0.03
 weight_decay: 0.0
 lr_scheduler_type: cosine
 logging_steps: 10
-save_steps: 50                  # ~4% of the run; cheap insurance
-eval_steps: 100                 # NOW ACTUALLY RUNS -- watch for eval_loss rising
+save_steps: 50                  # ~7% of the run
+save_total_limit: 6             # was 2 -- a crash at 74% left only 2 candidates
+eval_steps: 100                 # watch for eval_loss rising
+eval_max_samples: 200           # full 1.3k val set cost 5.8 min/eval = 18% of a run
 bf16: true
 gradient_checkpointing: true
 packing: false                  # see the header: correctness AND speed

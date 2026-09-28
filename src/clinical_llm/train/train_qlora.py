@@ -266,7 +266,7 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
         lr_scheduler_type=cfg.lr_scheduler_type,
         logging_steps=cfg.logging_steps,
         save_steps=cfg.save_steps,
-        save_total_limit=2,
+        save_total_limit=cfg.save_total_limit,
         eval_steps=cfg.eval_steps,
         bf16=use_bf16,
         fp16=use_fp16,
@@ -290,6 +290,17 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
     # signal for overfitting. The arg was renamed `evaluation_strategy` ->
     # `eval_strategy`; set whichever this version accepts, and only when there
     # really is a validation split to score.
+    # Cap the in-loop eval set. Full-validation evals are the single easiest
+    # way to burn a session without noticing.
+    if ds.get("validation") is not None and cfg.eval_max_samples:
+        n = min(cfg.eval_max_samples, len(ds["validation"]))
+        if n < len(ds["validation"]):
+            log.info(
+                "subsampling in-loop eval: %d of %d examples (full set is scored "
+                "by run_eval, not here)", n, len(ds["validation"])
+            )
+            ds["validation"] = ds["validation"].select(range(n))
+
     if ds.get("validation") is not None:
         strategy_arg = "eval_strategy" if "eval_strategy" in accepted else "evaluation_strategy"
         sft_kwargs[strategy_arg] = "steps"
@@ -320,6 +331,8 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
             cfg.per_device_batch_size * cfg.grad_accum * cfg.model.max_seq_len
         )
 
+        max_hours = getattr(cfg, "_max_hours", 0.0)
+
         class ThroughputGuard(TrainerCallback):
             def __init__(self, probe_at: int = 3):
                 self.probe_at = probe_at
@@ -340,14 +353,18 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
                     "projected total %.1f h for %s steps",
                     s_it, tok_s, eta_h, cfg.max_steps,
                 )
-                if eta_h > 4:
-                    log.warning(
-                        "PROJECTED RUN EXCEEDS 4 HOURS (%.1f h). A Colab session "
-                        "will very likely be reclaimed first. Stop now and either "
-                        "lower max_seq_len / max_steps, install flash-attn, or "
-                        "checkpoint to Drive via --output-dir.",
-                        eta_h,
+                if max_hours and eta_h > max_hours:
+                    # Abort, do not warn. The previous version warned at 4.9 h
+                    # and trained for 3.5 hours before Colab reclaimed the
+                    # runtime at 74%, losing everything.
+                    feasible = int(max_hours * 3600 / s_it)
+                    log.error(
+                        "ABORTING: projected %.1f h exceeds the %.1f h budget. "
+                        "At %.1f s/it, %d steps fit. Set max_steps to about %d "
+                        "(or pass --max-hours 0 to disable this check).",
+                        eta_h, max_hours, s_it, feasible, feasible,
                     )
+                    control.should_training_stop = True
 
         trainer.add_callback(ThroughputGuard())
 
@@ -399,6 +416,16 @@ def main() -> None:
         help="Override max_steps from the config, for a quick throughput probe.",
     )
     ap.add_argument(
+        "--max-hours",
+        type=float,
+        default=0.0,
+        help=(
+            "Abort at the throughput probe if the projected run exceeds this "
+            "many hours. 0 disables. A warning is not enough -- one run warned "
+            "at 4.9h, trained 3.5h, and was reclaimed at 74%% with nothing saved."
+        ),
+    )
+    ap.add_argument(
         "--no-resume",
         action="store_true",
         help=(
@@ -415,6 +442,9 @@ def main() -> None:
     if args.max_steps is not None:
         cfg.max_steps = args.max_steps
         log.info("max_steps overridden: %s", cfg.max_steps)
+    cfg._max_hours = args.max_hours
+    if args.max_hours:
+        log.info("runtime budget: %.1f h (aborts at the probe if exceeded)", args.max_hours)
     train(cfg, resume_ok=not args.no_resume)
 
 
