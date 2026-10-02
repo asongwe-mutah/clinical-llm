@@ -6,8 +6,11 @@ can be imported without ``datasets`` installed).
 
 Sources (all publicly downloadable, no credentialing required):
 
-* **PubMedQA** (`qiaojin/PubMedQA`, ``pqa_labeled``) — yes/no/maybe research QA
-  over PubMed abstracts. Great for grounded, evidence-style answers.
+* **PubMedQA** (`qiaojin/PubMedQA`, ``pqa_artificial``) — yes/no/maybe research
+  QA over PubMed abstracts. Great for grounded, evidence-style answers.
+  **Deliberately NOT ``pqa_labeled``**: that 1,000-item split is the evaluation
+  benchmark, and training on it leaked ~98% of the eval set into the corpus.
+  See ``TRAIN_SPECS`` below and ``tests/test_no_contamination.py``.
 * **MedMCQA** (`openlifescienceai/medmcqa`) — Indian medical-entrance MCQs
   across 21 subjects. Large and broad.
 * **MedQuAD** (`lavita/MedQuAD`) — consumer-health Q&A pairs curated from NIH
