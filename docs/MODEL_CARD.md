@@ -52,15 +52,28 @@ Accuracy by letter-constrained log-likelihood (lm-eval-harness style), base vs.
 fine-tuned, on **held-out** splits. Both models score the **same items in the
 same order**, so the comparison is paired.
 
-**n = 1,000 per benchmark. Evaluated 2026-09-27.**
+**n = 1,000 per benchmark.** MedMCQA and PubMedQA evaluated 2026-09-27;
+MedQA 2026-10-02. Same adapter throughout.
 
-| Benchmark | Base | Fine-tuned | Δ | McNemar *p* |
-|---|---:|---:|---:|---:|
-| MedMCQA (val) | 47.10% | **52.90%** | **+5.80 pp** | 4.3 × 10⁻⁴ |
-| ~~PubMedQA~~ | ~~64.10%~~ | ~~74.00%~~ | ~~+9.90 pp~~ | **withdrawn — see below** |
+| Benchmark | Share of training corpus | Base | Fine-tuned | Δ | McNemar *p* |
+|---|---:|---:|---:|---:|---:|
+| MedMCQA (val) | 59% | 47.10% | **52.90%** | **+5.80 pp** | 4.3 × 10⁻⁴ |
+| **MedQA (test)** | **0%** | 42.80% | **50.10%** | **+7.30 pp** | 1.0 × 10⁻⁶ |
+| ~~PubMedQA~~ | — | ~~64.10%~~ | ~~74.00%~~ | ~~+9.90 pp~~ | **withdrawn — see below** |
 
-**The MedMCQA result is the headline number**: +5.80 pp, significant at
-α = 0.05, on a validation split disjoint from everything trained on.
+**The MedQA result is the headline.** MedQA (USMLE-style clinical vignettes) is
+**absent from the training corpus entirely** — a different task format, a
+different source, never seen during fine-tuning. It nonetheless shows a *larger*
+lift than MedMCQA, which supplies 59% of the training data, and a cleaner
+fix-to-regression ratio (2.01:1 vs 1.57:1).
+
+That ordering is the substantive finding: the adaptation transferred rather
+than memorising MedMCQA's house style. A gain confined to the in-distribution
+benchmark would have been the weaker, more common outcome.
+
+Absolute accuracy is unremarkable — a 3B model near 50% on USMLE-style
+questions is not a strong clinical reasoner, and nothing here should be read as
+one. The *delta* is the measurement; the absolute number is context.
 
 > ### ⚠️ The PubMedQA result was contaminated and is withdrawn
 >
@@ -80,19 +93,21 @@ same order**, so the comparison is paired.
 <details>
 <summary>Full statistics, including what the fine-tune breaks</summary>
 
-| Benchmark | Base 95% CI | Fine-tuned 95% CI | Fixed | Regressed | Discordant |
-|---|---|---|---:|---:|---:|
-| MedMCQA | [0.440, 0.502] | [0.498, 0.560] | 160 | 102 | 262 |
-| ~~PubMedQA~~ *(contaminated)* | ~~[0.611, 0.670]~~ | ~~[0.712, 0.766]~~ | ~~163~~ | ~~64~~ | ~~227~~ |
+| Benchmark | Base 95% CI | Fine-tuned 95% CI | Fixed | Regressed | Ratio | Discordant |
+|---|---|---|---:|---:|---:|---:|
+| MedMCQA | [0.440, 0.502] | [0.498, 0.560] | 160 | 102 | 1.57:1 | 262 (26.2%) |
+| MedQA | [0.398, 0.459] | [0.470, 0.532] | 145 | 72 | 2.01:1 | 217 (21.7%) |
+| ~~PubMedQA~~ *(contaminated)* | ~~[0.611, 0.670]~~ | ~~[0.712, 0.766]~~ | ~~163~~ | ~~64~~ | — | ~~227~~ |
 
 Intervals are Wilson score intervals. *Fixed* = base wrong, fine-tuned right;
 *regressed* = the reverse.
 
 **Fine-tuning is not uniformly positive.** On MedMCQA it corrects 160 items but
-breaks 102 — a net gain of 58, a fix-to-regression ratio of 1.57:1, with 26% of
-items changing answer in one direction or the other. Reporting only the net
-delta would hide that a quarter of answers moved, and that a non-trivial number
-moved the wrong way.
+breaks 102 — a net gain of 58, a ratio of 1.57:1, with 26% of items changing
+answer in one direction or the other. MedQA is cleaner at 2.01:1 (145 fixed,
+72 broken). Reporting only the net delta would hide that roughly a quarter of
+answers moved on each benchmark, and that a non-trivial number moved the wrong
+way. Per-item outcomes for both are stored, so this is checkable.
 
 McNemar's test is used rather than a two-proportion z-test because the models
 score identical items; the unpaired test discards that pairing and is needlessly
@@ -122,15 +137,16 @@ inference.
 ### Reproduce
 
 ```bash
+# MedMCQA (reports/eval.json); the PubMedQA column there is the withdrawn one
 python -m clinical_llm.eval.run_eval \
-  --base Qwen/Qwen2.5-3B-Instruct \
-  --adapter outputs/clinical-qlora \
-  --benchmarks medmcqa pubmedqa \
-  --max-items 1000 \
-  --out reports/eval.json
-```
+  --base Qwen/Qwen2.5-3B-Instruct --adapter outputs/clinical-qlora \
+  --benchmarks medmcqa pubmedqa --max-items 1000 --out reports/eval.json
 
-MedQA is supported (`--benchmarks medqa`) but was not scored for this card.
+# MedQA (reports/eval_medqa.json)
+python -m clinical_llm.eval.run_eval \
+  --base Qwen/Qwen2.5-3B-Instruct --adapter outputs/clinical-qlora \
+  --benchmarks medqa --max-items 1000 --out reports/eval_medqa.json
+```
 
 ## Limitations & risks
 
@@ -144,10 +160,12 @@ MedQA is supported (`--benchmarks medqa`) but was not scored for this card.
   where FA2 was unavailable, so packed samples were not block-diagonally masked
   and could attend across example boundaries. A known, uncorrected source of
   noise in the training signal.
-- **Single clean benchmark:** with PubMedQA withdrawn, exactly one benchmark
-  (MedMCQA) supports the reported result. MedQA is implemented, untouched by
-  the training corpus, and unscored — it is the obvious independent check.
-- **Benchmark scope:** MedMCQA and PubMedQA are multiple-choice. They measure
+- **Two benchmarks, one of them in-distribution.** MedQA is the independent
+  check and the stronger evidence; MedMCQA shares a source with 59% of the
+  training data, so its result is the less surprising of the two. PubMedQA is
+  withdrawn and will stay so until a model trained on the corrected corpus is
+  re-scored.
+- **Benchmark scope:** MedMCQA, MedQA and PubMedQA are all multiple-choice. They measure
   answer selection, not generation quality, calibration, or safety of free-text
   output — none of which are evaluated here.
 - **No calibration guarantee:** confident tone ≠ correctness.
