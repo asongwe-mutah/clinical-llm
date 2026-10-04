@@ -238,7 +238,10 @@ Colab trains under a newer PEFT (0.20.0 for the first adapter, 0.21.0 for the
 retrain), which writes config keys 0.19.1 ignores (`monteclora_config`,
 `velora_config`, and from 0.21.0 `kasa_config`). All are null; the retrained
 adapter's config loads under 0.19.1 with a warning. Its scores were produced on
-Colab; a full local inference pass with it has not been run.
+Colab. Local spot-check on MPS (2026-10-04, first 100 MedQA items): fine-tuned
+agrees with the Colab per-item outcomes on 99/100, base on 100/100 — the
+installed adapter is the scored one and behaves the same here. The full
+n=1000 runs have not been repeated locally.
 
 Corpus (`data_gpu.yaml`, 25k cap per source): MedMCQA 25,000 + MedQuAD 16,407 +
 PubMedQA `pqa_artificial` 25,000 = **66,407** → 65,079 train / 1,328 val.

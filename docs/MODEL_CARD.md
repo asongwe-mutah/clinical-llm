@@ -14,8 +14,13 @@
 - **Adapter:** LoRA, rank 16, α 32, dropout 0.05, applied to all seven attention
   and MLP projections (`q,k,v,o,gate,up,down`) — ~30M trainable parameters,
   under 1% of the base model.
-- **Trained:** 2026-09-26, 300 steps (~4.9M tokens) on a single Colab L4, bf16,
-  NF4 double-quantized base, effective batch 16 at sequence length 1024.
+- **Trained (current adapter):** 2026-10-02, 700 steps = 11,200 samples
+  (~4.4M tokens, 0.17 epoch) on a single Colab GPU, NF4 double-quantized base,
+  effective batch 16, packing off. Final validation loss 1.105, still falling
+  slowly (1.129 at step 100).
+- **Previous adapter:** 2026-09-26, 300 steps (~4.9M tokens, packed) on a
+  Colab L4, bf16, sequence length 1024. Superseded; its results are kept under
+  [Evaluation](#evaluation) as the record of the PubMedQA withdrawal.
 - **Language:** English.
 - **License:** Adapter released under MIT; **use is bound by the base model's
   license** (Qwen community license) and by each training dataset's terms.
@@ -35,16 +40,24 @@
 |---|---:|---|---|
 | MedMCQA | 25,000 | Multiple-choice QA (21 subjects) | Public (Apache-2.0) |
 | MedQuAD | 16,407 | Consumer-health open QA | Public (CC BY 4.0 terms) |
-| PubMedQA (`pqa_artificial`) | 1,000 | Grounded yes/no/maybe QA | Public (MIT) |
+| PubMedQA (`pqa_artificial`) | 25,000 | Grounded yes/no/maybe QA | Public (MIT) |
 | MIMIC-IV-Note *(optional stretch)* | — | Note summarization | **Credentialed (PhysioNet DUA); not redistributed** |
 
-42,407 examples total → 41,559 train / 848 validation. All normalized to a
+66,407 examples total → 65,079 train / 1,328 validation; the current adapter
+saw 11,200 of them (700 steps, a fraction of one epoch). All normalized to a
 single chat schema with a safety-framed system prompt
 (`src/clinical_llm/data/formatting.py`), which is the same renderer used at eval
 and serve time — there is no train/serve prompt skew.
 
-The 25k per-source cap binds only on MedMCQA: PubMedQA's labeled split contains
-just 1,000 items in total, and MedQuAD contributed all 16,407 it has.
+The 25k per-source cap binds on MedMCQA (182,822 available) and on
+`pqa_artificial` (211,269 available); MedQuAD contributed all 16,407 it has.
+`pqa_artificial` shares no pubids with `pqa_labeled`, the 1,000-item config the
+PubMedQA benchmark is scored on.
+
+The **previous adapter** was trained on a different, smaller corpus: 42,407
+examples (41,559 train / 848 validation), with PubMedQA drawn from the 1,000
+`pqa_labeled` items — the same items it was then evaluated on. That is the
+contamination described under [Evaluation](#evaluation).
 
 ## Evaluation
 
@@ -73,9 +86,9 @@ items); it remains the same task format, so it is held-out items, not an
 out-of-distribution test. MedMCQA is unchanged within noise against the previous
 adapter. Per-item outcomes: `reports/eval_retrain_pqa_artificial_*.json`.
 
-The remainder of this section, and the training-data table above, describe the
-**previous adapter** (saved 2026-09-26) and are kept as the record of how the
-PubMedQA contamination was found and withdrawn.
+The remainder of this section describes the **previous adapter** (saved
+2026-09-26) and is kept as the record of how the PubMedQA contamination was
+found and withdrawn.
 
 ### Previous adapter
 
@@ -183,17 +196,20 @@ python -m clinical_llm.eval.run_eval \
 - **Regressions:** as above, the adapter makes some previously-correct answers
   wrong. Net accuracy improves; per-item behaviour is not monotonic.
 - **Bias:** MedMCQA skews toward the Indian medical curriculum; MedQuAD toward
-  US consumer health — coverage and phrasing biases follow. MedMCQA is also 59%
-  of the training mix, so that skew is weighted heavily.
+  US consumer health — coverage and phrasing biases follow. MedMCQA is 38% of
+  the training mix (59% for the previous adapter), so that skew carries weight.
 - **Packing without FlashAttention-2 (previous adapter only):** training used sequence packing on a GPU
   where FA2 was unavailable, so packed samples were not block-diagonally masked
   and could attend across example boundaries. A known, uncorrected source of
   noise in the training signal.
-- **Two benchmarks, one of them in-distribution.** MedQA is the independent
-  check and the stronger evidence; MedMCQA shares a source with 59% of the
-  training data, so its result is the less surprising of the two. The
-  contaminated PubMedQA figure stays withdrawn; the retrained adapter's
-  PubMedQA score is valid but in-format (same source, disjoint articles).
+- **Three benchmarks, only one out-of-distribution.** MedQA is the independent
+  check and the strongest evidence. MedMCQA supplies 38% of the training mix,
+  and PubMedQA is scored on held-out articles in a format the model trained on,
+  so those two results are the less surprising ones. The contaminated PubMedQA
+  figure from the previous adapter stays withdrawn.
+- **MedQA is no longer untouched.** It has been scored once per adapter, and the
+  second score decided which adapter to report. Further recipe changes should be
+  selected on a separate dev split, not on these 1,000 items.
 - **Benchmark scope:** MedMCQA, MedQA and PubMedQA are all multiple-choice. They measure
   answer selection, not generation quality, calibration, or safety of free-text
   output — none of which are evaluated here.
@@ -202,8 +218,10 @@ python -m clinical_llm.eval.run_eval \
 
 ## Environmental / compute
 
-- One QLoRA run on a single Colab **L4**: ~2.6 GPU-hours for 300 steps
-  (measured 30.9 s/it at 525 tokens/s), plus ~1 hour of evaluation.
-- Evaluation ran on Apple Silicon (MPS), not a datacentre GPU.
+- Current adapter: one QLoRA run of 700 steps on a single Colab GPU (budgeted
+  at ~3 GPU-hours), plus three n = 1,000 evaluations on Colab (CUDA).
+- Previous adapter: one run on a Colab **L4**, ~2.6 GPU-hours for 300 steps
+  (measured 30.9 s/it at 525 tokens/s), plus ~1 hour of evaluation on Apple
+  Silicon (MPS).
 - No pre-training from scratch; parameter-efficient tuning updates <1% of
   weights.
