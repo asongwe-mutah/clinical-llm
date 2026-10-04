@@ -22,8 +22,11 @@
   Colab L4, bf16, sequence length 1024. Superseded; its results are kept under
   [Evaluation](#evaluation) as the record of the PubMedQA withdrawal.
 - **Language:** English.
-- **License:** Adapter released under MIT; **use is bound by the base model's
-  license** (Qwen community license) and by each training dataset's terms.
+- **Weights:** published at
+  [`mutahfon/clinical-qlora-qwen2.5-3b`](https://huggingface.co/mutahfon/clinical-qlora-qwen2.5-3b).
+- **License:** Code is MIT. The adapter is a derivative of the base model, so
+  **its use is bound by the base model's license** (Qwen Research License) and
+  by each training dataset's terms.
 
 ## Intended use
 

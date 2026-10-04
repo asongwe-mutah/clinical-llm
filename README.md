@@ -35,6 +35,23 @@ fine-tuned on the **same 1,000 items per benchmark**, paired McNemar test.
 model near 51% on USMLE-style questions is not a strong clinical reasoner, and
 the fine-tune also *breaks* 71–98 previously-correct answers per benchmark.
 
+**The adapter is published:**
+[`mutahfon/clinical-qlora-qwen2.5-3b`](https://huggingface.co/mutahfon/clinical-qlora-qwen2.5-3b)
+on Hugging Face — the exact weights behind the table above. Load it on top of
+the base model without retraining:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+
+tok = AutoTokenizer.from_pretrained("mutahfon/clinical-qlora-qwen2.5-3b")
+model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-3B-Instruct", device_map="auto")
+model = PeftModel.from_pretrained(model, "mutahfon/clinical-qlora-qwen2.5-3b")
+```
+
+The eval harness takes the Hub id directly:
+`run_eval --adapter mutahfon/clinical-qlora-qwen2.5-3b`.
+
 **An earlier PubMedQA result (+9.90 pp) was withdrawn.** The first adapter was
 trained on the same 1,000 `pqa_labeled` items it was then scored on, so that
 number was memorisation. The corpus was fixed, a contamination test suite was
