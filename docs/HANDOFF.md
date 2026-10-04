@@ -1,6 +1,7 @@
 # Handoff — Clinical-LLM
 
-**As of 2026-10-02, HEAD `f1ad0db`.** Written so anyone (including future-you)
+**As of 2026-10-04** (retrained adapter installed and scored; previous
+revision was 2026-10-02 at `f1ad0db`). Written so anyone (including future-you)
 can pick this up without reading the conversation that produced it.
 
 ---
@@ -26,40 +27,80 @@ Deliberate about what it is **not**:
 Honest one-liner:
 
 > QLoRA domain adaptation of Qwen2.5-3B-Instruct for clinical informatics, with
-> a paired-statistics evaluation harness. +7.30 pp on MedQA (held out from
-> training entirely) and +5.80 pp on MedMCQA, both significant by McNemar at
-> n=1000.
+> a paired-statistics evaluation harness. +7.90 pp on MedQA (42.9% → 50.8%,
+> held out from training entirely), +5.60 pp on MedMCQA (47.1% → 52.7%) and
+> +9.50 pp on PubMedQA (64.1% → 73.6%), all significant by McNemar at n=1000.
 
 ---
 
 ## 2. Current results
 
-Adapter: `outputs/clinical-qlora/`, saved **2026-09-26 23:09**, r=16, α=32.
+### 2a. Current adapter — the retrain (headline)
+
+Adapter: `outputs/clinical-qlora/`, saved **2026-10-03 00:16 UTC**, r=16, α=32.
+Trained on the corrected corpus (`data_gpu.yaml`, PubMedQA from
+`pqa_artificial`), packing off, 700 steps = 11,200 samples (0.17 epoch), final
+`eval_loss` 1.105. Scored on Colab (CUDA) 2026-10-04.
 All numbers n=1000, paired, McNemar (χ² with Edwards continuity correction).
 
 | Benchmark | Share of training corpus | Base | Fine-tuned | Δ | McNemar *p* | Fix:regress |
 |---|---:|---:|---:|---:|---:|---:|
-| **MedQA** (USMLE) | **0%** | 42.80% | **50.10%** | **+7.30 pp** | 1.0×10⁻⁶ | 2.01:1 |
-| MedMCQA (val) | 59% | 47.10% | **52.90%** | +5.80 pp | 4.3×10⁻⁴ | 1.57:1 |
-| ~~PubMedQA~~ | — | ~~64.10%~~ | ~~74.00%~~ | ~~+9.90 pp~~ | **WITHDRAWN** | — |
+| **MedQA** (USMLE) | **0%** | 42.90% | **50.80%** | **+7.90 pp** | 1.5×10⁻⁷ | 150:71 (2.11:1) |
+| MedMCQA (val) | 38% | 47.10% | **52.70%** | +5.60 pp | 5.3×10⁻⁴ | 154:98 (1.57:1) |
+| PubMedQA (`pqa_labeled`) | 0% of scored items | 64.10% | **73.60%** | +9.50 pp | 1.4×10⁻⁹ | 168:73 (2.30:1) |
 
-**MedQA is the headline.** It is absent from the training corpus entirely, yet
-shows a *larger* lift and a cleaner fix-to-regression ratio than MedMCQA, which
-supplies 59% of the training data. The adaptation transferred rather than
-learning MedMCQA's house style — the opposite of the more common outcome.
+**MedQA is the headline, and this adapter is the one to report.** The rule was
+set before the retrain was scored (§6): if MedQA came in below +7.30 pp, the
+old adapter stayed the headline. It came in at +7.90 pp, so the retrain takes
+over for all three benchmarks. No per-benchmark picking between adapters.
 
-Absolute accuracy is unremarkable; a 3B model near 50% on USMLE questions is not
+MedQA is absent from the training corpus entirely, yet shows a *larger* lift
+and a cleaner fix-to-regression ratio than MedMCQA, which is in the training
+mix. The adaptation transferred rather than learning MedMCQA's house style —
+the opposite of the more common outcome.
+
+**PubMedQA is reinstated.** Training now reads `pqa_artificial`; evaluation
+reads `pqa_labeled`. They share **0 pubids**, checked across all 211,269
+`pqa_artificial` items. It is still the same task format from the same source,
+so read it as in-format, held-out-items — not out-of-distribution like MedQA.
+
+Absolute accuracy is unremarkable; a 3B model near 51% on USMLE questions is not
 a strong clinical reasoner. **The delta is the measurement, the absolute is
 context.** Say both.
 
-Evidence is committed: `reports/eval.json`, `reports/eval_medqa.json` carry
-per-item outcomes, so every test can be recomputed without re-running inference.
+What did not change: MedMCQA is flat against the old adapter (+5.60 vs
++5.80 pp, 98 regressions vs 102). Turning packing off did **not** meaningfully
+reduce MedMCQA regressions; the two adapters were not compared pairwise, so
+treat the MedQA difference between them (+7.90 vs +7.30) as within noise too.
+
+Evidence is committed: `reports/eval_retrain_pqa_artificial_{medqa,medmcqa,pubmedqa}.json`
+carry per-item outcomes, so every test can be recomputed without re-running
+inference. The eval manifest's adapter fingerprint (`20767b65b6e30aaa`) matches
+the installed files' sizes and save times.
+
+Caveat on the base column: MedQA base is 429/1000 here and 428/1000 in §2b.
+Same items, different hardware (Colab CUDA vs Mac MPS); one item flipped.
+
+### 2b. Previous adapter — kept for the record
+
+Adapter saved **2026-09-26 23:09 UTC**, now at
+`outputs/clinical-qlora-backup-20260926/`. Scored locally on MPS.
+
+| Benchmark | Share of training corpus | Base | Fine-tuned | Δ | McNemar *p* | Fix:regress |
+|---|---:|---:|---:|---:|---:|---:|
+| MedQA (USMLE) | 0% | 42.80% | 50.10% | +7.30 pp | 1.0×10⁻⁶ | 2.01:1 |
+| MedMCQA (val) | 59% | 47.10% | 52.90% | +5.80 pp | 4.3×10⁻⁴ | 1.57:1 |
+| ~~PubMedQA~~ | — | ~~64.10%~~ | ~~74.00%~~ | ~~+9.90 pp~~ | **WITHDRAWN** | — |
+
+Evidence: `reports/eval.json`, `reports/eval_medqa.json`. The PubMedQA column
+in `reports/eval.json` is the withdrawn one (§3).
 
 ---
 
 ## 3. The single most important thing to know
 
-**PubMedQA was contaminated and the result is withdrawn.**
+**The first PubMedQA result was contaminated and is withdrawn. It stays
+withdrawn; the valid number comes from the retrain (§2a).**
 
 `iter_pubmedqa` trained on `qiaojin/PubMedQA` config `pqa_labeled` split
 `train`. `load_pubmedqa_test` evaluates the *same* dataset, config and split.
@@ -72,8 +113,12 @@ Fixed in `7a79fe2`: training now reads `pqa_artificial` (disjoint). Guarded by
 source and benchmark share a `(dataset, config, split)` triple, verified to fail
 by name on the exact configuration that caused it.
 
-**But there is still no valid PubMedQA number.** The only run on the corrected
-corpus crashed. Getting one requires a retrain (§6).
+**Resolved 2026-10-04.** The retrain on the corrected corpus completed and
+scores 64.1% → 73.6% (+9.50 pp, p = 1.4×10⁻⁹). Beyond the config-level guard,
+the two configs were checked item-by-item: 0 of the 211,269 `pqa_artificial`
+pubids appear in `pqa_labeled`. The clean number landing close to the
+contaminated +9.90 pp is a coincidence of magnitude, not a vindication — the
+old figure measured recall of trained items and remains struck through.
 
 ---
 
@@ -142,19 +187,21 @@ ruff check src tests   # the exact CI gate
 
 ## 6. Open items, ranked
 
-1. **Push to GitHub.** 20 commits, local only, branch `master`, **no remote
-   configured**. `github.com/asongwe-mutah/clinical-llm` 404s, so the README's
-   CI badge, Colab badge and the notebook's clone fallback all point at nothing.
-   Zero GPU, highest visibility-per-effort. Rename `master` → `main` first.
-2. **PubMedQA retrain** (~3 h Colab + ~1.75 h local eval). Gives three valid
-   benchmarks from one adapter and answers whether `packing: false` reduces the
-   102 MedMCQA regressions. Config is ready and guarded.
+1. ~~**Push to GitHub.**~~ Done 2026-10-04: branch renamed `master` → `main`,
+   public at `github.com/asongwe-mutah/clinical-llm`.
+2. ~~**PubMedQA retrain.**~~ Done 2026-10-04, see §2a. Three valid benchmarks
+   from one adapter. Answer on packing: MedMCQA regressions went 102 → 98,
+   i.e. no real change.
 3. **`docs/BRIEF.md`.** The originating prompt (Claude conversation, 2026-07-27)
    is not saved anywhere. Everything else is documented — why packing is off,
    why `pqa_artificial`, why McNemar — but not the requirements that shaped it.
 4. **Delete `_to_delete/`** — stale git lock files, untracked.
 
 ### If you retrain: decide this *before* seeing numbers
+
+*(Written 2026-10-02, before the retrain was scored. Kept verbatim because it is
+the rule §2a was judged by. Outcome: MedQA +7.90 pp ≥ +7.30 pp, so the retrain
+is the headline.)*
 
 The new adapter may be worse (11,200 samples vs the current 13,600, different
 recipe). If MedQA drops below +7.30 pp, report the current adapter as the
@@ -176,7 +223,8 @@ slower.
 - **`device_bash` is a Linux VM, not macOS.** The repo's `.venv` is macOS-arm64
   and cannot execute there. Evals run in the Mac terminal.
 - **Repeated tuning against MedMCQA validation will overfit to that split.**
-  MedQA has now been scored once; treat further use of it the same way.
+  MedQA has now been scored **twice** (once per adapter); every further look
+  spends it. Do not iterate recipes against it.
 
 ---
 
@@ -186,8 +234,11 @@ Local venv (Mac, MPS): torch 2.13.0, transformers 5.14.1, peft 0.19.1,
 trl 1.9.1, datasets 5.0.0. `bitsandbytes` absent — irrelevant, eval runs fp16
 unquantized.
 
-Colab trains under PEFT 0.20.0, which writes config keys 0.19.1 ignores
-(`monteclora_config`, `velora_config`). Both are null; verified harmless.
+Colab trains under a newer PEFT (0.20.0 for the first adapter, 0.21.0 for the
+retrain), which writes config keys 0.19.1 ignores (`monteclora_config`,
+`velora_config`, and from 0.21.0 `kasa_config`). All are null; the retrained
+adapter's config loads under 0.19.1 with a warning. Its scores were produced on
+Colab; a full local inference pass with it has not been run.
 
 Corpus (`data_gpu.yaml`, 25k cap per source): MedMCQA 25,000 + MedQuAD 16,407 +
 PubMedQA `pqa_artificial` 25,000 = **66,407** → 65,079 train / 1,328 val.

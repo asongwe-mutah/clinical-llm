@@ -15,6 +15,38 @@ benchmarks and a **FastAPI + Docker inference service** with a browser chat UI.
 
 ---
 
+## Results
+
+QLoRA adapter (r=16, <1% of weights) on `Qwen/Qwen2.5-3B-Instruct`, base vs
+fine-tuned on the **same 1,000 items per benchmark**, paired McNemar test.
+
+| Benchmark | Share of training corpus | Base | Fine-tuned | Δ | McNemar *p* | Fix:regress |
+|---|---:|---:|---:|---:|---:|---:|
+| **MedQA** (USMLE, test) | **0%** | 42.90% | **50.80%** | **+7.90 pp** | 1.5×10⁻⁷ | 150:71 |
+| MedMCQA (val) | 38% | 47.10% | **52.70%** | +5.60 pp | 5.3×10⁻⁴ | 154:98 |
+| PubMedQA (`pqa_labeled`) | 0%¹ | 64.10% | **73.60%** | +9.50 pp | 1.4×10⁻⁹ | 168:73 |
+
+¹ Training uses PubMedQA's `pqa_artificial` config; evaluation uses
+`pqa_labeled`. The two share **0 pubids** (checked across all 211,269
+`pqa_artificial` items). Same task format, disjoint articles.
+
+**MedQA is the headline**: it is absent from training entirely and still moves
++7.90 pp. **The delta is the measurement, the absolute is context** — a 3B
+model near 51% on USMLE-style questions is not a strong clinical reasoner, and
+the fine-tune also *breaks* 71–98 previously-correct answers per benchmark.
+
+**An earlier PubMedQA result (+9.90 pp) was withdrawn.** The first adapter was
+trained on the same 1,000 `pqa_labeled` items it was then scored on, so that
+number was memorisation. The corpus was fixed, a contamination test suite was
+added, and the model was retrained; the +9.50 pp above is from the retrained
+adapter. The rule for which adapter to report was fixed *before* the retrain
+was scored (MedQA ≥ +7.30 pp, the first adapter's figure, or the old adapter
+stays the headline). Full history, both adapters' numbers and per-item evidence:
+[`docs/MODEL_CARD.md`](docs/MODEL_CARD.md), [`docs/HANDOFF.md`](docs/HANDOFF.md),
+`reports/eval_retrain_pqa_artificial_*.json`.
+
+---
+
 ## Why this exists (and why not "train an LLM from scratch")
 
 Pre-training a genuinely *large* model from scratch costs six-to-seven figures of
@@ -42,7 +74,7 @@ configs/         # data.yaml, train_qlora.yaml, train_smoke.yaml, ...
 ui/              # self-contained browser chat demo
 docker/          # CUDA serving image + compose
 docs/            # MODEL_CARD.md, SAFETY.md
-tests/           # fast, GPU-free unit tests (22 passing)
+tests/           # fast, GPU-free unit tests (36 passing)
 ```
 
 ## Architecture
@@ -67,7 +99,7 @@ tests/           # fast, GPU-free unit tests (22 passing)
 
 ```bash
 pip install -e ".[dev]"
-pytest -q          # 22 passing: prompt contract, config loading, data adapters
+pytest -q          # 36 passing: prompt contract, config loading, data adapters
 ```
 
 ### 2. Smoke-train end-to-end locally (CPU / Apple-Silicon MPS)
@@ -119,11 +151,13 @@ python -m clinical_llm.eval.run_eval \
   --base Qwen/Qwen2.5-3B-Instruct \
   --adapter outputs/clinical-qlora \
   --benchmarks medmcqa pubmedqa medqa \
-  --max-items 500 --out reports/eval.json
+  --max-items 1000 --out reports/eval_myrun.json
 ```
 
-Writes per-benchmark accuracy and the **base→fine-tuned delta** to
-`reports/eval.json`. Report these numbers in [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
+Writes per-benchmark accuracy, the **base→fine-tuned delta** and the paired
+McNemar test to the `--out` file. Use a fresh filename: the `reports/*.json`
+already committed are the evidence behind the [Results](#results) table and
+[`docs/MODEL_CARD.md`](docs/MODEL_CARD.md), and should not be overwritten.
 
 ### 5. Serve the demo
 

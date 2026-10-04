@@ -52,6 +52,33 @@ Accuracy by letter-constrained log-likelihood (lm-eval-harness style), base vs.
 fine-tuned, on **held-out** splits. Both models score the **same items in the
 same order**, so the comparison is paired.
 
+### Current adapter (retrained on the corrected corpus, scored 2026-10-04)
+
+**n = 1,000 per benchmark**, one adapter for all three. Trained with PubMedQA
+drawn from `pqa_artificial` (corpus: MedMCQA 25,000 + MedQuAD 16,407 +
+`pqa_artificial` 25,000 = 66,407), packing off, 700 steps = 11,200 samples.
+
+| Benchmark | Share of training corpus | Base | Fine-tuned | Δ | McNemar *p* | Fixed | Regressed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **MedQA (test)** | **0%** | 42.90% | **50.80%** | **+7.90 pp** | 1.5 × 10⁻⁷ | 150 | 71 |
+| MedMCQA (val) | 38% | 47.10% | **52.70%** | +5.60 pp | 5.3 × 10⁻⁴ | 154 | 98 |
+| PubMedQA (`pqa_labeled`) | 0% of scored items | 64.10% | **73.60%** | +9.50 pp | 1.4 × 10⁻⁹ | 168 | 73 |
+
+This adapter is the headline under a rule fixed before it was scored: it had to
+match or beat the previous adapter's +7.30 pp on MedQA, otherwise the previous
+adapter stayed the headline and this one would have been reported only as the
+clean PubMedQA datapoint. PubMedQA is reinstated because `pqa_artificial` and
+`pqa_labeled` share 0 pubids (checked across all 211,269 `pqa_artificial`
+items); it remains the same task format, so it is held-out items, not an
+out-of-distribution test. MedMCQA is unchanged within noise against the previous
+adapter. Per-item outcomes: `reports/eval_retrain_pqa_artificial_*.json`.
+
+The remainder of this section, and the training-data table above, describe the
+**previous adapter** (saved 2026-09-26) and are kept as the record of how the
+PubMedQA contamination was found and withdrawn.
+
+### Previous adapter
+
 **n = 1,000 per benchmark.** MedMCQA and PubMedQA evaluated 2026-09-27;
 MedQA 2026-10-02. Same adapter throughout.
 
@@ -88,7 +115,9 @@ one. The *delta* is the measurement; the absolute number is context.
 > evaluation benchmark share a (dataset, config, split) triple, and fails on
 > the exact configuration that caused this.
 >
-> PubMedQA will be re-scored after a retrain on the corrected corpus.
+> PubMedQA was re-scored on 2026-10-04 after a retrain on the corrected corpus:
+> 64.10% → 73.60% (+9.50 pp). See *Current adapter* above. The +9.90 pp stays
+> withdrawn.
 
 <details>
 <summary>Full statistics, including what the fine-tune breaks</summary>
@@ -156,15 +185,15 @@ python -m clinical_llm.eval.run_eval \
 - **Bias:** MedMCQA skews toward the Indian medical curriculum; MedQuAD toward
   US consumer health — coverage and phrasing biases follow. MedMCQA is also 59%
   of the training mix, so that skew is weighted heavily.
-- **Packing without FlashAttention-2:** training used sequence packing on a GPU
+- **Packing without FlashAttention-2 (previous adapter only):** training used sequence packing on a GPU
   where FA2 was unavailable, so packed samples were not block-diagonally masked
   and could attend across example boundaries. A known, uncorrected source of
   noise in the training signal.
 - **Two benchmarks, one of them in-distribution.** MedQA is the independent
   check and the stronger evidence; MedMCQA shares a source with 59% of the
-  training data, so its result is the less surprising of the two. PubMedQA is
-  withdrawn and will stay so until a model trained on the corrected corpus is
-  re-scored.
+  training data, so its result is the less surprising of the two. The
+  contaminated PubMedQA figure stays withdrawn; the retrained adapter's
+  PubMedQA score is valid but in-format (same source, disjoint articles).
 - **Benchmark scope:** MedMCQA, MedQA and PubMedQA are all multiple-choice. They measure
   answer selection, not generation quality, calibration, or safety of free-text
   output — none of which are evaluated here.
