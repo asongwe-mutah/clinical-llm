@@ -59,6 +59,14 @@ with, is on the Hugging Face model page.
 The eval harness takes the Hub id directly:
 `run_eval --adapter mutahfon/clinical-qlora-qwen2.5-3b`.
 
+**A second, independent MedQA sample shows a smaller lift.** On MedQA's `dev`
+split (1,272 questions, none shared with the test split above, scored
+2026-10-04) the same adapter goes 47.01% → 50.39%: **+3.38 pp**, p = 0.012,
+160 fixed and 117 regressed. Still a real improvement, but less than half the
+test-split figure. The fine-tuned accuracy is the same on both (~50–51%); the
+base model simply scores higher on dev. Read the lift as "somewhere between
++3 and +8 pp on USMLE-style questions", not as +7.90 exactly.
+
 **An earlier PubMedQA result (+9.90 pp) was withdrawn.** The first adapter was
 trained on the same 1,000 `pqa_labeled` items it was then scored on, so that
 number was memorisation. The corpus was fixed, a contamination test suite was

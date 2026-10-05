@@ -80,6 +80,24 @@ carry per-item outcomes, so every test can be recomputed without re-running
 inference. The eval manifest's adapter fingerprint (`20767b65b6e30aaa`) matches
 the installed files' sizes and save times.
 
+**The MedQA lift is smaller on a second sample — read this before quoting
++7.90.** Scored on MedQA `dev` (all 1,272 items, disjoint from test, MPS,
+2026-10-04; `reports/eval_v1_medqa_dev.json`):
+
+| Split | n | Base | Fine-tuned | Δ | McNemar *p* | Fix:regress |
+|---|---:|---:|---:|---:|---:|---:|
+| MedQA test (headline) | 1,000 | 42.90% | 50.80% | +7.90 pp | 1.5×10⁻⁷ | 150:71 |
+| MedQA dev | 1,272 | 47.01% | 50.39% | +3.38 pp | 0.012 | 160:117 |
+
+Fine-tuned accuracy agrees across the two (50.8% vs 50.4%). What differs is
+the base model, which is 4 points stronger on dev, and the regression count.
+The two deltas differ by 4.5 pp against a standard error of about 2 pp
+(roughly p ≈ 0.02), so this is probably not all sampling noise. Both are
+legitimate held-out measurements; neither was trained on. The honest summary
+is a lift of roughly +3 to +8 pp, significant on both samples. The test figure
+stays the headline because that was the rule, but it should not be quoted
+without the dev figure next to it.
+
 Caveat on the base column: MedQA base is 429/1000 here and 428/1000 in §2b.
 Same items, different hardware (Colab CUDA vs Mac MPS); one item flipped.
 
@@ -292,7 +310,8 @@ It is not used for any choice here.
    question shared with `test` (checked) and never trained on (tested). All
    scoring for selection runs on the Mac (MPS), so every adapter is compared
    on the same hardware. v1's score there is the incumbent:
-   `reports/eval_v1_medqa_dev.json`.
+   `reports/eval_v1_medqa_dev.json` — **50.39% (641/1272)**, base 47.01%,
+   scored 2026-10-04 before any v2 training.
 2. **Candidates:** the v2 milestones at steps 700, 1400 and 2100 — or whichever
    exist if the run is cut short. Pick the one with the highest dev accuracy;
    ties go to the later step.

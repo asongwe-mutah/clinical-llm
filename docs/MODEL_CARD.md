@@ -89,6 +89,12 @@ items); it remains the same task format, so it is held-out items, not an
 out-of-distribution test. MedMCQA is unchanged within noise against the previous
 adapter. Per-item outcomes: `reports/eval_retrain_pqa_artificial_*.json`.
 
+**Second MedQA sample.** On the MedQA `dev` split (n = 1,272, disjoint from
+test) the same adapter scores 47.01% → 50.39%, **+3.38 pp** (p = 0.012; 160
+fixed, 117 regressed; `reports/eval_v1_medqa_dev.json`). Fine-tuned accuracy
+matches the test split; the base model is stronger on dev, so the lift is less
+than half as large. Quote the two together.
+
 The remainder of this section describes the **previous adapter** (saved
 2026-09-26) and is kept as the record of how the PubMedQA contamination was
 found and withdrawn.
