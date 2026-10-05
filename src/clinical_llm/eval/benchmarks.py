@@ -43,11 +43,10 @@ def load_medmcqa_val(max_items: int | None = None) -> Iterator[MCQItem]:
         )
 
 
-def load_medqa_test(max_items: int | None = None) -> Iterator[MCQItem]:
-    """MedQA (USMLE) 4-option English test split."""
+def _load_medqa(split: str, source: str, max_items: int | None) -> Iterator[MCQItem]:
     from datasets import load_dataset
 
-    ds = load_dataset("openlifescienceai/medqa", split="test")
+    ds = load_dataset("openlifescienceai/medqa", split=split)
     for i, row in enumerate(ds):
         if max_items is not None and i >= max_items:
             break
@@ -65,7 +64,23 @@ def load_medqa_test(max_items: int | None = None) -> Iterator[MCQItem]:
             gold_index = int(data.get("answer_idx", -1))
         if not question or gold_index < 0 or gold_index >= len(options):
             continue
-        yield MCQItem(question=question, options=options, gold_index=gold_index, source="medqa")
+        yield MCQItem(question=question, options=options, gold_index=gold_index, source=source)
+
+
+def load_medqa_test(max_items: int | None = None) -> Iterator[MCQItem]:
+    """MedQA (USMLE) 4-option English test split. The reported benchmark."""
+    return _load_medqa("test", "medqa", max_items)
+
+
+def load_medqa_dev(max_items: int | None = None) -> Iterator[MCQItem]:
+    """MedQA ``dev`` split (1,272 items, no question shared with ``test``).
+
+    This is the split to make decisions on: which checkpoint, which recipe,
+    whether a new adapter beats the current one. ``medqa`` (test) has been
+    scored once per adapter and each further look spends it, so selection
+    happens here and test is scored once, at the end, on whatever was chosen.
+    """
+    return _load_medqa("dev", "medqa_dev", max_items)
 
 
 def load_pubmedqa_test(max_items: int | None = None) -> Iterator[MCQItem]:
@@ -94,6 +109,7 @@ def load_pubmedqa_test(max_items: int | None = None) -> Iterator[MCQItem]:
 BENCHMARKS = {
     "medmcqa": load_medmcqa_val,
     "medqa": load_medqa_test,
+    "medqa_dev": load_medqa_dev,
     "pubmedqa": load_pubmedqa_test,
 }
 
@@ -102,5 +118,6 @@ BENCHMARKS = {
 EVAL_SPECS: dict[str, tuple[str, str | None, str]] = {
     "medmcqa": ("openlifescienceai/medmcqa", None, "validation"),
     "medqa": ("openlifescienceai/medqa", None, "test"),
+    "medqa_dev": ("openlifescienceai/medqa", None, "dev"),
     "pubmedqa": ("qiaojin/PubMedQA", "pqa_labeled", "train"),
 }

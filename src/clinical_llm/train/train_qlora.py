@@ -237,6 +237,26 @@ def load_and_render_dataset(cfg: TrainConfig, tokenizer):
     return ds
 
 
+def session_budget_spent(elapsed_s: float, session_hours: float) -> bool:
+    """True once a session has used its time budget. 0 means no budget."""
+    return session_hours > 0 and elapsed_s >= session_hours * 3600
+
+
+def run_is_complete(global_step: int, max_steps: int) -> bool:
+    """A step-bounded run is complete only at max_steps.
+
+    Anything short of that is a partial run -- stopped by the session budget,
+    the throughput guard, or a crash -- and must not be saved as the final
+    adapter: the LR schedule has not finished and downstream tooling treats
+    output_dir/adapter_config.json as "training is done".
+    """
+    return max_steps <= 0 or global_step >= max_steps
+
+
+def milestone_dir(output_dir: str, step: int) -> Path:
+    return Path(output_dir) / "milestones" / f"step-{step:05d}"
+
+
 def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
     import torch
     from trl import SFTConfig, SFTTrainer
@@ -332,6 +352,7 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
         )
 
         max_hours = getattr(cfg, "_max_hours", 0.0)
+        session_hours = getattr(cfg, "_session_hours", 0.0)
 
         class ThroughputGuard(TrainerCallback):
             def __init__(self, probe_at: int = 3):
@@ -353,6 +374,17 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
                     "projected total %.1f h for %s steps",
                     s_it, tok_s, eta_h, cfg.max_steps,
                 )
+                if session_hours:
+                    import math
+
+                    log.info(
+                        "session budget %.1f h: ~%d steps per session, so this "
+                        "run needs about %d session(s). Re-run the same command "
+                        "after each one; it resumes from the newest checkpoint.",
+                        session_hours,
+                        int(session_hours * 3600 / s_it),
+                        math.ceil(eta_h / session_hours),
+                    )
                 if max_hours and eta_h > max_hours:
                     # Abort, do not warn. The previous version warned at 4.9 h
                     # and trained for 3.5 hours before Colab reclaimed the
@@ -367,6 +399,8 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
                     control.should_training_stop = True
 
         trainer.add_callback(ThroughputGuard())
+
+    _add_session_callbacks(trainer, cfg, tokenizer)
 
     log.info(
         "starting training: base=%s | 4bit=%s | cuda=%s | precision=%s | steps=%s | epochs=%s",
@@ -391,10 +425,66 @@ def train(cfg: TrainConfig, resume_ok: bool = True) -> str:
             log.info("resuming from %s (pass --no-resume to start clean)", resume)
 
     trainer.train(resume_from_checkpoint=resume)
+    done = trainer.state.global_step
+    if not run_is_complete(done, cfg.max_steps):
+        log.warning(
+            "stopped at step %d of %d -- this run is NOT finished, so no final "
+            "adapter was written to %s. Re-run the same command to resume from "
+            "the newest checkpoint.",
+            done, cfg.max_steps, cfg.output_dir,
+        )
+        return cfg.output_dir
     trainer.save_model(cfg.output_dir)
     tokenizer.save_pretrained(cfg.output_dir)
     log.info("saved LoRA adapter + tokenizer to %s", cfg.output_dir)
     return cfg.output_dir
+
+
+def _add_session_callbacks(trainer, cfg: TrainConfig, tokenizer) -> None:
+    """Callbacks that let one run span several time-limited sessions."""
+    import time
+
+    from transformers import TrainerCallback
+
+    session_hours = getattr(cfg, "_session_hours", 0.0)
+
+    class SessionBudget(TrainerCallback):
+        """Stop cleanly, on a fresh checkpoint, before the host reclaims us.
+
+        Colab reclaims at ~4.2-4.6 h whatever the run is doing. Stopping at a
+        chosen point with a checkpoint just written costs zero steps; being
+        reclaimed costs everything since the last save, and has cost whole runs.
+        """
+
+        def on_train_begin(self, args, state, control, **kw):
+            self.t0 = time.time()
+
+        def on_step_end(self, args, state, control, **kw):
+            if run_is_complete(state.global_step, cfg.max_steps):
+                return
+            if session_budget_spent(time.time() - self.t0, session_hours):
+                log.info(
+                    "session budget of %.1f h reached at step %d of %d: saving "
+                    "a checkpoint and stopping.",
+                    session_hours, state.global_step, cfg.max_steps,
+                )
+                control.should_save = True
+                control.should_training_stop = True
+
+    class MilestoneSaver(TrainerCallback):
+        def on_step_end(self, args, state, control, model=None, **kw):
+            n = cfg.milestone_steps
+            if not n or state.global_step % n or model is None:
+                return
+            dest = milestone_dir(cfg.output_dir, state.global_step)
+            model.save_pretrained(str(dest))
+            tokenizer.save_pretrained(str(dest))
+            log.info("milestone adapter saved to %s", dest)
+
+    if session_hours:
+        trainer.add_callback(SessionBudget())
+    if cfg.milestone_steps:
+        trainer.add_callback(MilestoneSaver())
 
 
 def main() -> None:
@@ -426,6 +516,17 @@ def main() -> None:
         ),
     )
     ap.add_argument(
+        "--session-hours",
+        type=float,
+        default=0.0,
+        help=(
+            "For runs longer than one session: after this many hours, save a "
+            "checkpoint and stop cleanly. Re-running the same command resumes. "
+            "No final adapter is written until max_steps is reached. Use this "
+            "INSTEAD of --max-hours, which aborts runs that cannot fit."
+        ),
+    )
+    ap.add_argument(
         "--no-resume",
         action="store_true",
         help=(
@@ -443,6 +544,14 @@ def main() -> None:
         cfg.max_steps = args.max_steps
         log.info("max_steps overridden: %s", cfg.max_steps)
     cfg._max_hours = args.max_hours
+    cfg._session_hours = args.session_hours
+    if args.session_hours and args.max_hours:
+        ap.error("--session-hours and --max-hours are alternatives; pass one.")
+    if args.session_hours:
+        log.info(
+            "session budget: %.1f h (checkpoints and stops; re-run to resume)",
+            args.session_hours,
+        )
     if args.max_hours:
         log.info("runtime budget: %.1f h (aborts at the probe if exceeded)", args.max_hours)
     train(cfg, resume_ok=not args.no_resume)

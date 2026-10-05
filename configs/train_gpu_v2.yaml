@@ -1,0 +1,93 @@
+# v2: the SAME recipe as configs/train_gpu.yaml, trained three times as long.
+#
+# PAIR THIS WITH configs/data_gpu.yaml (66,407 examples -> 65,079 train).
+# Read configs/train_gpu.yaml's header first: every measurement and bug that
+# shaped this recipe is recorded there and applies unchanged.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS
+#
+# The v1 adapter (700 steps) saw 11,200 of 65,079 training examples -- 17% of
+# one epoch -- and eval_loss was still falling when the cosine schedule ran
+# out: 1.129 at step 100, 1.105 at step 700. The cheapest untested lever is
+# simply more of the same training. Nothing else changes: same data, same
+# LoRA shape, same LR, same batch, same seed, packing still off. One variable,
+# so a difference in score can be attributed to it. tests/test_sessions.py
+# asserts that this file and train_gpu.yaml differ only in the step budget.
+#
+#    700 steps = 11,200 samples = 0.17 epoch   (v1)
+#   1400 steps = 22,400 samples = 0.34 epoch
+#   2100 steps = 33,600 samples = 0.52 epoch   <- this file
+#   4067 steps = 65,079 samples = 1.00 epoch   (~17.5 h on an L4; not attempted)
+#
+# THIS DOES NOT FIT ONE COLAB SESSION, BY DESIGN
+#
+# At the measured 15.5 s/it on an L4, 2100 steps is ~9 hours. Colab reclaims
+# at ~4.2-4.6 h. So the run is split across sessions:
+#
+#   python -m clinical_llm.train.train_qlora --config configs/train_gpu_v2.yaml \
+#       --output-dir /content/drive/MyDrive/clinical-qlora-v2 --session-hours 3
+#
+# --session-hours saves a checkpoint and stops cleanly at the budget. Running
+# the identical command again resumes from the newest checkpoint with the
+# optimizer and LR schedule intact. Expect 3 sessions on an L4, 1-2 on an A100.
+# Do NOT pass --max-hours here: it aborts any run that cannot fit, which this
+# one cannot.
+#
+# No final adapter is written until step 2100. A stopped session leaves only
+# checkpoint-* and milestones/ in the output dir, so nothing downstream can
+# mistake a partial run for the result.
+#
+# output_dir MUST be a fresh folder. Pointing this at v1's Drive folder would
+# resume from v1's checkpoint-700, whose cosine schedule already decayed to
+# zero over 700 steps -- a different, unplanned experiment.
+#
+# HOW THE RESULT IS CHOSEN (fixed before any v2 number exists)
+#
+# milestone_steps keeps adapter-only snapshots at steps 700, 1400 and 2100.
+# They are compared on MedQA *dev* (benchmark `medqa_dev`, 1,272 items, no
+# question shared with test) -- never on the MedQA test split, which has
+# already been scored once per adapter. The full rule is in docs/HANDOFF.md.
+#
+# The step-700 milestone is NOT a reproduction of v1: its LR schedule is
+# stretched over 2100 steps, so at step 700 it is still at ~78% of peak LR
+# where v1 had annealed to zero. Compare milestones with each other and with
+# v1 on dev; do not expect step-700 to match v1.
+# ---------------------------------------------------------------------------
+
+data_dir: data/processed
+output_dir: outputs/clinical-qlora-v2   # NOT v1's dir: it would resume v1's checkpoint-700
+
+model:
+  base_model: Qwen/Qwen2.5-3B-Instruct
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: bfloat16   # genuinely native here
+  bnb_4bit_quant_type: nf4
+  max_seq_len: 1024                  # was 2048; see the measurement above
+  trust_remote_code: false
+  attn_implementation: auto          # flash_attention_2 if installed, else sdpa
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+epochs: 1.0
+max_steps: 2100                 # 3x v1: 33,600 samples = 0.52 epoch; ~9 h on an L4, in sessions
+per_device_batch_size: 8
+grad_accum: 2                   # effective batch = 16
+learning_rate: 2.0e-4
+warmup_ratio: 0.03
+weight_decay: 0.0
+lr_scheduler_type: cosine
+logging_steps: 10
+save_steps: 50                  # ~7% of the run
+save_total_limit: 6             # was 2 -- a crash at 74% left only 2 candidates
+milestone_steps: 700            # adapter-only snapshots at 700 / 1400 / 2100 for dev-split selection
+eval_steps: 100                 # watch for eval_loss rising
+eval_max_samples: 200           # full 1.3k val set cost 5.8 min/eval = 18% of a run
+bf16: true
+gradient_checkpointing: true
+packing: false                  # see the header: correctness AND speed
+seed: 13

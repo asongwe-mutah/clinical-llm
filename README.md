@@ -98,7 +98,7 @@ configs/         # data.yaml, train_qlora.yaml, train_smoke.yaml, ...
 ui/              # self-contained browser chat demo
 docker/          # CUDA serving image + compose
 docs/            # MODEL_CARD.md, SAFETY.md
-tests/           # fast, GPU-free unit tests (36 passing)
+tests/           # fast, GPU-free unit tests (44 passing)
 ```
 
 ## Architecture
@@ -123,7 +123,7 @@ tests/           # fast, GPU-free unit tests (36 passing)
 
 ```bash
 pip install -e ".[dev]"
-pytest -q          # 36 passing: prompt contract, config loading, data adapters
+pytest -q          # 44 passing: prompt contract, config loading, data adapters
 ```
 
 ### 2. Smoke-train end-to-end locally (CPU / Apple-Silicon MPS)

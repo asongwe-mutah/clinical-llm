@@ -42,10 +42,29 @@ def test_medmcqa_uses_disjoint_splits():
 
 
 def test_medqa_is_never_trained_on():
-    """MedQA is the clean held-out benchmark; keep it out of the corpus."""
-    medqa_eval = EVAL_SPECS["medqa"]
-    for tname, tspec in TRAIN_SPECS.items():
-        assert tspec[0] != medqa_eval[0], f"train:{tname} reads the MedQA dataset"
+    """MedQA is the clean held-out benchmark; keep it out of the corpus.
+
+    Covers every MedQA split, including the dev split used for selection:
+    training on the selection set would bias the choice it exists to make.
+    """
+    for ename in ("medqa", "medqa_dev"):
+        medqa_eval = EVAL_SPECS[ename]
+        for tname, tspec in TRAIN_SPECS.items():
+            assert tspec[0] != medqa_eval[0], f"train:{tname} reads the MedQA dataset"
+
+
+def test_selection_split_is_not_the_reported_split():
+    """Choosing a checkpoint on the split you then report is contamination by
+    selection rather than by training -- slower, same failure."""
+    assert EVAL_SPECS["medqa_dev"][0] == EVAL_SPECS["medqa"][0]
+    assert EVAL_SPECS["medqa_dev"][2] == "dev"
+    assert EVAL_SPECS["medqa"][2] == "test"
+    assert EVAL_SPECS["medqa_dev"] != EVAL_SPECS["medqa"]
+
+
+def test_no_two_benchmarks_read_the_same_split():
+    specs = list(EVAL_SPECS.values())
+    assert len(specs) == len(set(specs)), f"duplicate eval specs: {specs}"
 
 
 def test_specs_cover_every_loader():

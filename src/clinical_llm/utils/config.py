@@ -95,6 +95,11 @@ class TrainConfig:
     # How many checkpoints to retain. 2 is too few when a run may be killed:
     # a crash at 74% left exactly two candidates and no eval curve to pick from.
     save_total_limit: int = 6
+    # Keep an adapter-only snapshot every N steps under output_dir/milestones/.
+    # Rolling checkpoints are pruned by save_total_limit, so without this a
+    # multi-session run leaves nothing from its early stages to compare on the
+    # dev split. ~70 MB each (no optimizer state). 0 disables.
+    milestone_steps: int = 0
     bf16: bool = True
     gradient_checkpointing: bool = True
     packing: bool = True

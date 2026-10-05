@@ -70,8 +70,10 @@ context.** Say both.
 
 What did not change: MedMCQA is flat against the old adapter (+5.60 vs
 +5.80 pp, 98 regressions vs 102). Turning packing off did **not** meaningfully
-reduce MedMCQA regressions; the two adapters were not compared pairwise, so
-treat the MedQA difference between them (+7.90 vs +7.30) as within noise too.
+reduce MedMCQA regressions; compared directly on the same 1,000 MedQA items
+(`scripts/compare_runs.py`), the retrain is +0.70 pp over the old adapter with
+32 fixed and 25 regressed, p = 0.43 — within noise. (Cross-hardware caveat
+applies: one was scored on MPS, the other on CUDA.)
 
 Evidence is committed: `reports/eval_retrain_pqa_artificial_{medqa,medmcqa,pubmedqa}.json`
 carry per-item outcomes, so every test can be recomputed without re-running
@@ -202,6 +204,8 @@ ruff check src tests   # the exact CI gate
    why `pqa_artificial`, why McNemar — but not the requirements that shaped it.
 4. **Delete `_to_delete/`** — stale git lock files, untracked.
 
+5. **v2: a longer run.** Prepared 2026-10-04, not yet trained. See §9.
+
 ### If you retrain: decide this *before* seeing numbers
 
 *(Written 2026-10-02, before the retrain was scored. Kept verbatim because it is
@@ -251,3 +255,60 @@ n=1000 runs have not been repeated locally.
 Corpus (`data_gpu.yaml`, 25k cap per source): MedMCQA 25,000 + MedQuAD 16,407 +
 PubMedQA `pqa_artificial` 25,000 = **66,407** → 65,079 train / 1,328 val.
 The cap binds only on MedMCQA (182,822 available).
+
+---
+
+## 9. v2 — a longer run of the same recipe (prepared, not yet trained)
+
+**Hypothesis.** v1 saw 11,200 of 65,079 training examples (0.17 epoch) and
+`eval_loss` was still falling when its schedule ended (1.129 → 1.105). More of
+the same training may help. v2 changes **one thing**: 2,100 steps instead of
+700 (33,600 samples, 0.52 epoch). Same data, LoRA shape, LR, batch, seed;
+packing off. `tests/test_sessions.py` asserts the two configs differ only there.
+
+**Honest prior.** This may do nothing. The retrain moved MedQA by +0.70 pp over
+the adapter before it (p = 0.43). A 3B model has a ceiling.
+
+### How to run it
+
+Open `notebooks/clinical_llm_v2_train.ipynb` in Colab on an **L4 or A100**, Run
+all, walk away. About 9 h on an L4, so it spans ~3 sessions: each trains for
+3 h, checkpoints to `Drive/clinical-qlora-v2`, and stops itself
+(`--session-hours`). Run all again in a fresh session to resume. The last cell
+says whether it is finished. Nothing is written as a final adapter until step
+2,100, so a partial run cannot be mistaken for the result.
+
+When finished, download `clinical-qlora-v2/milestones/` (three ~70 MB
+adapters: steps 700, 1400, 2100) to the Mac. **Do not run
+`install_adapter.py` yet** — it would pick the newest `clinical-qlora*`
+download and replace v1 before the rule below has been applied.
+
+### The rule — fixed 2026-10-04, before any v2 number exists
+
+MedQA **test** has been scored once per adapter and decided the last headline.
+It is not used for any choice here.
+
+1. **Selection set:** `medqa_dev` — the MedQA `dev` split, all 1,272 items, no
+   question shared with `test` (checked) and never trained on (tested). All
+   scoring for selection runs on the Mac (MPS), so every adapter is compared
+   on the same hardware. v1's score there is the incumbent:
+   `reports/eval_v1_medqa_dev.json`.
+2. **Candidates:** the v2 milestones at steps 700, 1400 and 2100 — or whichever
+   exist if the run is cut short. Pick the one with the highest dev accuracy;
+   ties go to the later step.
+3. **Bar:** the pick replaces v1 only if it beats v1 on dev in a direct paired
+   McNemar test (`scripts/compare_runs.py`) at **p < 0.0167** — 0.05 divided by
+   the three candidates, because taking the best of three is itself a way to
+   find a difference that is not there.
+4. **If it clears the bar:** score that one adapter, once, on MedQA test,
+   MedMCQA and PubMedQA (n = 1,000, same items as v1). Those numbers become
+   the headline **whatever they are** — including if MedQA test comes out
+   below v1's +7.90 pp. No reverting per benchmark.
+5. **If it does not:** v1 stays the headline. v2 is written up as a null
+   result with its dev numbers. v2 is **not** scored on MedQA test.
+6. Whatever happens, no further recipe is chosen by looking at MedQA test.
+
+Why step-700 of v2 is not a rerun of v1: v2's cosine schedule is stretched over
+2,100 steps, so at step 700 it is still at ~78% of peak LR where v1 had
+annealed to zero.
+
