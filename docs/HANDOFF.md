@@ -194,7 +194,9 @@ ruff check src tests   # the exact CI gate
    i.e. no real change.
    Adapter weights published 2026-10-04 at
    `huggingface.co/mutahfon/clinical-qlora-qwen2.5-3b` (SHA-256 matches
-   `outputs/clinical-qlora/adapter_model.safetensors`).
+   `outputs/clinical-qlora/adapter_model.safetensors`). Verified end to end
+   from the Hub: the model-card snippet generates, and the first 100 MedQA
+   items score identically to the local adapter (100/100 per-item).
 3. **`docs/BRIEF.md`.** The originating prompt (Claude conversation, 2026-07-27)
    is not saved anywhere. Everything else is documented — why packing is off,
    why `pqa_artificial`, why McNemar — but not the requirements that shaped it.

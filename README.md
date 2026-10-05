@@ -41,13 +41,20 @@ on Hugging Face — the exact weights behind the table above. Load it on top of
 the base model without retraining:
 
 ```python
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
+device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+dtype = torch.float16 if device != "cpu" else torch.float32
+
 tok = AutoTokenizer.from_pretrained("mutahfon/clinical-qlora-qwen2.5-3b")
-model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-3B-Instruct", device_map="auto")
-model = PeftModel.from_pretrained(model, "mutahfon/clinical-qlora-qwen2.5-3b")
+model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-3B-Instruct", dtype=dtype)
+model = PeftModel.from_pretrained(model, "mutahfon/clinical-qlora-qwen2.5-3b").to(device).eval()
 ```
+
+A full generation example, including the system prompt the adapter was trained
+with, is on the Hugging Face model page.
 
 The eval harness takes the Hub id directly:
 `run_eval --adapter mutahfon/clinical-qlora-qwen2.5-3b`.
