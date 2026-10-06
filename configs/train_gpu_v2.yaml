@@ -53,6 +53,11 @@
 # stretched over 2100 steps, so at step 700 it is still at ~78% of peak LR
 # where v1 had annealed to zero. Compare milestones with each other and with
 # v1 on dev; do not expect step-700 to match v1.
+#
+# RESULT (2026-10-05): NULL. Step-2100 scored 642/1272 on medqa_dev against
+# v1's 641/1272 (p = 1.0). v1 was kept. Trained on an A100 in one session at
+# roughly 3.4 s/it. Do not rerun this expecting a different answer; a v3 needs
+# to change something other than max_steps. docs/HANDOFF.md section 9.
 # ---------------------------------------------------------------------------
 
 data_dir: data/processed

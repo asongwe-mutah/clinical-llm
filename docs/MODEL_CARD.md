@@ -95,6 +95,12 @@ fixed, 117 regressed; `reports/eval_v1_medqa_dev.json`). Fine-tuned accuracy
 matches the test split; the base model is stronger on dev, so the lift is less
 than half as large. Quote the two together.
 
+**Longer training was tried and did not help.** The same recipe run for 2,100
+steps (33,600 samples) scores 50.47% on MedQA dev against this adapter's
+50.39% (paired McNemar p = 1.0; 49 fixed, 48 regressed). Under a rule fixed
+before that run, this adapter was kept and the longer one was not scored on
+the test sets. See `docs/HANDOFF.md` §9.
+
 The remainder of this section describes the **previous adapter** (saved
 2026-09-26) and is kept as the record of how the PubMedQA contamination was
 found and withdrawn.

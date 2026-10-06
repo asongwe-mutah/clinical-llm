@@ -67,6 +67,14 @@ test-split figure. The fine-tuned accuracy is the same on both (~50–51%); the
 base model simply scores higher on dev. Read the lift as "somewhere between
 +3 and +8 pp on USMLE-style questions", not as +7.90 exactly.
 
+**Training three times longer did not help (v2, a null result).** The same
+recipe run for 2,100 steps instead of 700 scores 50.47% on MedQA dev against
+the current adapter's 50.39% — one question out of 1,272, p = 1.0. The rule
+for replacing the adapter was fixed before training (beat it on dev at
+p < 0.0167), so the 700-step adapter stays, and v2 was never scored on the
+test sets. The plateau is reached early; the limit is the recipe or the 3B
+base model, not the amount of training. Details: `docs/HANDOFF.md` §9.
+
 **An earlier PubMedQA result (+9.90 pp) was withdrawn.** The first adapter was
 trained on the same 1,000 `pqa_labeled` items it was then scored on, so that
 number was memorisation. The corpus was fixed, a contamination test suite was

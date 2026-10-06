@@ -222,7 +222,8 @@ ruff check src tests   # the exact CI gate
    why `pqa_artificial`, why McNemar — but not the requirements that shaped it.
 4. **Delete `_to_delete/`** — stale git lock files, untracked.
 
-5. **v2: a longer run.** Prepared 2026-10-04, not yet trained. See §9.
+5. ~~**v2: a longer run.**~~ Done 2026-10-05: three times the training did
+   not beat v1 on the dev split. v1 stays the headline. See §9.
 
 ### If you retrain: decide this *before* seeing numbers
 
@@ -276,7 +277,7 @@ The cap binds only on MedMCQA (182,822 available).
 
 ---
 
-## 9. v2 — a longer run of the same recipe (prepared, not yet trained)
+## 9. v2 — a longer run of the same recipe (done: null result, v1 stays)
 
 **Hypothesis.** v1 saw 11,200 of 65,079 training examples (0.17 epoch) and
 `eval_loss` was still falling when its schedule ended (1.129 → 1.105). More of
@@ -330,4 +331,40 @@ It is not used for any choice here.
 Why step-700 of v2 is not a rerun of v1: v2's cosine schedule is stretched over
 2,100 steps, so at step 700 it is still at ~78% of peak LR where v1 had
 annealed to zero.
+
+### Outcome — 2026-10-05
+
+Trained in one session on a Colab **A100** (2,100 steps in roughly 3.3 h,
+about 3.4 s/it by the checkpoint timestamps — the L4 figure of 15.5 s/it was
+the only one measured beforehand). All three milestones scored on `medqa_dev`,
+n = 1,272, on the Mac (MPS), same as the v1 baseline.
+
+| Adapter | Samples seen | Dev correct | Dev accuracy | Δ vs base (47.01%) | vs v1, paired |
+|---|---:|---:|---:|---:|---|
+| **v1** (700 steps, own schedule) | 11,200 | 641 | **50.39%** | +3.38 pp | — |
+| v2 step 700 | 11,200 | 630 | 49.53% | +2.52 pp | −0.86 pp, 30 fixed / 41 regressed, p = 0.24 |
+| v2 step 1400 | 22,400 | 638 | 50.16% | +3.14 pp | −0.24 pp, 45 / 48, p = 0.84 |
+| v2 step 2100 | 33,600 | 642 | 50.47% | +3.46 pp | **+0.08 pp**, 49 / 48, p = 1.0 |
+
+**Applying the rule.** Step 2 picks step-2100 (highest dev accuracy). Step 3:
+it beats v1 by one question out of 1,272, p = 1.0 against a bar of 0.0167.
+**It does not clear the bar.** So, by step 5: **v1 remains the headline and the
+installed adapter; v2 is a null result; v2 was not scored on MedQA test,
+MedMCQA or PubMedQA.** The published Hugging Face weights are unchanged.
+
+**What this tells us.** Tripling the training on this recipe bought nothing
+measurable on held-out USMLE questions. Within v2, dev accuracy does creep up
+with steps (630 → 638 → 642), but that is mostly the LR schedule annealing, and
+the endpoint lands exactly where v1 already was. The adapter reaches its
+plateau within ~11k samples. The ceiling is the recipe or the 3B base model,
+not the step count — so "train longer" is closed as a lever, and a full epoch
+(~4,067 steps) is not worth the compute on this evidence.
+
+**If there is a v3,** it has to change something other than duration:
+a larger base (e.g. 7–8B), a different LoRA capacity or target set, or
+training data closer to the target task. Select on `medqa_dev` again; note
+that dev has now been used for four adapters, so it is wearing too. Evidence:
+`reports/eval_v2_step{700,1400,2100}_medqa_dev.json`. The three milestone
+adapters are in `outputs/clinical-qlora-v2/milestones/` (local, gitignored)
+and in Drive under `clinical-qlora-v2/`.
 
